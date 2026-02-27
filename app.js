@@ -178,7 +178,7 @@ function navigateTo(page) {
         case 'dashboard': loadDashboard(); break;
         case 'students': loadStudents(); break;
         case 'courses': loadCourses(); break;
-        case 'enrollments': break; // loaded on filter
+        case 'enrollments': loadAllEnrollments(); break;
         case 'grades': break; // loaded on filter
     }
 }
@@ -371,7 +371,7 @@ function setupFilters() {
     $('#filter-enrollments-btn').addEventListener('click', () => {
         const studentId = $('#filter-student-id').value.trim();
         if (!studentId) {
-            showToast('Please enter a Student ID', 'warning');
+            loadAllEnrollments();
             return;
         }
         loadEnrollmentsByStudent(studentId);
@@ -434,6 +434,24 @@ async function loadEnrollmentsByCourse(courseId) {
         renderEnrollmentsTable(enrollments);
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading roster'}</td></tr>`;
+    }
+}
+
+async function loadAllEnrollments() {
+    const tbody = $('#enrollments-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments…</td></tr>';
+
+    try {
+        const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments`);
+
+        if (!Array.isArray(enrollments) || enrollments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No enrollments found in the system</td></tr>';
+            return;
+        }
+
+        renderEnrollmentsTable(enrollments);
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading enrollments'}</td></tr>`;
     }
 }
 
