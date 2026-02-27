@@ -74,8 +74,8 @@ function setupLoginForm() {
         btn.innerHTML = '<span>Signing in…</span>';
 
         try {
-            // Try to authenticate via Student/Auth service
-            const response = await fetchAPI(`${CONFIG.STUDENT_SERVICE}/auth/login`, {
+            // Try to authenticate via API Gateway
+            const response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
                 method: 'POST',
                 body: JSON.stringify({ email, password }),
             });
@@ -214,7 +214,7 @@ async function loadDashboard() {
 async function loadDashboardStats() {
     // Students count
     try {
-        const students = await fetchAPI(`${CONFIG.STUDENT_SERVICE}/students`);
+        const students = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
         const count = Array.isArray(students) ? students.length : (students?.count || '—');
         $('#stat-students').textContent = count;
     } catch {
@@ -223,7 +223,7 @@ async function loadDashboardStats() {
 
     // Courses count
     try {
-        const courses = await fetchAPI(`${CONFIG.COURSE_SERVICE}/courses`);
+        const courses = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`);
         const count = Array.isArray(courses) ? courses.length : (courses?.count || '—');
         $('#stat-courses').textContent = count;
     } catch {
@@ -291,7 +291,7 @@ async function loadStudents() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading students…</td></tr>';
 
     try {
-        const students = await fetchAPI(`${CONFIG.STUDENT_SERVICE}/students`);
+        const students = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
 
         if (!Array.isArray(students) || students.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No students found</td></tr>';
@@ -330,7 +330,7 @@ async function loadCourses() {
     grid.innerHTML = '<div class="empty-state">Loading courses…</div>';
 
     try {
-        const courses = await fetchAPI(`${CONFIG.COURSE_SERVICE}/courses`);
+        const courses = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`);
 
         if (!Array.isArray(courses) || courses.length === 0) {
             grid.innerHTML = '<div class="empty-state">No courses found</div>';
@@ -405,7 +405,7 @@ async function loadEnrollmentsByStudent(studentId) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments…</td></tr>';
 
     try {
-        const enrollments = await fetchAPI(`${CONFIG.ENROLLMENT_SERVICE}/enrollments/student/${studentId}`);
+        const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/student/${studentId}`);
 
         if (!Array.isArray(enrollments) || enrollments.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No enrollments found for this student</td></tr>';
@@ -424,7 +424,7 @@ async function loadEnrollmentsByCourse(courseId) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster…</td></tr>';
 
     try {
-        const enrollments = await fetchAPI(`${CONFIG.ENROLLMENT_SERVICE}/enrollments/course/${courseId}`);
+        const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/course/${courseId}`);
 
         if (!Array.isArray(enrollments) || enrollments.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No enrollments found for this course</td></tr>';
@@ -530,7 +530,7 @@ function setupEnrollmentForm() {
         showToast('Processing enrollment...', 'info');
 
         try {
-            await fetchAPI(`${CONFIG.ENROLLMENT_SERVICE}/enroll`, {
+            await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enroll`, {
                 method: 'POST',
                 body: JSON.stringify({ student_id, course_id }),
             });
@@ -561,7 +561,7 @@ async function cancelEnrollment(enrollmentId) {
     if (!confirm('Are you sure you want to cancel this enrollment?')) return;
 
     try {
-        await fetchAPI(`${CONFIG.ENROLLMENT_SERVICE}/enroll/${enrollmentId}`, {
+        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enroll/${enrollmentId}`, {
             method: 'DELETE',
         });
         showToast('Enrollment cancelled', 'success');
@@ -587,7 +587,7 @@ function setupStatusForm() {
         }
 
         try {
-            await fetchAPI(`${CONFIG.ENROLLMENT_SERVICE}/enrollments/${id}/status`, {
+            await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/${id}/status`, {
                 method: 'PATCH',
                 body: JSON.stringify({ status }),
             });
@@ -618,7 +618,7 @@ async function loadGrades(studentId) {
     $('#gpa-summary').classList.add('hidden');
 
     try {
-        const grades = await fetchAPI(`${CONFIG.GRADE_SERVICE}/grades/student/${studentId}`);
+        const grades = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades/student/${studentId}`);
 
         if (!Array.isArray(grades) || grades.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No grades found for this student</td></tr>';
@@ -638,7 +638,7 @@ async function loadGrades(studentId) {
 
         // Try loading GPA
         try {
-            const gpaData = await fetchAPI(`${CONFIG.GRADE_SERVICE}/gpa/${studentId}`);
+            const gpaData = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/gpa/${studentId}`);
             if (gpaData?.gpa !== undefined) {
                 $('#gpa-value').textContent = parseFloat(gpaData.gpa).toFixed(2);
                 $('#gpa-summary').classList.remove('hidden');
