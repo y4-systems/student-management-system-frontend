@@ -22,7 +22,22 @@ let state = {
     token: localStorage.getItem('uniportal_token') || null,
     user: JSON.parse(localStorage.getItem('uniportal_user') || 'null'),
     currentPage: 'dashboard',
+    enrollmentView: { type: 'all', value: null },
+    enrollmentPoller: null,
 };
+
+function looksLikeJWT(token) {
+    if (!token || typeof token !== 'string') return false;
+    const parts = token.split('.');
+    return parts.length === 3 && parts.every(Boolean);
+}
+
+function clearStoredAuth() {
+    state.token = null;
+    state.user = null;
+    localStorage.removeItem('uniportal_token');
+    localStorage.removeItem('uniportal_user');
+}
 
 // ── DOM References ────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -36,6 +51,11 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initApp() {
+    // Ignore stale/demo tokens that are not real JWTs.
+    if (state.token && !looksLikeJWT(state.token)) {
+        clearStoredAuth();
+    }
+
     // Check if user is logged in
     if (state.token) {
         showApp();
@@ -44,9 +64,10 @@ function initApp() {
     }
 
     // Event Listeners
-    setupLoginForm();
+    setupAuthForms();
     setupNavigation();
     setupModals();
+    setupStudentCreateForm();
     setupEnrollmentForm();
     setupStatusForm();
     setupFilters();
@@ -57,10 +78,16 @@ function initApp() {
 // ═══════════════════════════════════════════
 //  AUTHENTICATION
 // ═══════════════════════════════════════════
-function setupLoginForm() {
-    const form = $('#login-form');
-    form.addEventListener('submit', async (e) => {
+function setupAuthForms() {
+    const loginForm = $('#login-form');
+    const registerForm = $('#register-form');
+
+    $('#auth-tab-login').addEventListener('click', () => switchAuthMode('login'));
+    $('#auth-tab-register').addEventListener('click', () => switchAuthMode('register'));
+
+    loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        setAuthStatus('');
         const email = $('#login-email').value.trim();
         const password = $('#login-password').value;
 
@@ -70,54 +97,144 @@ function setupLoginForm() {
         }
 
         const btn = $('#login-btn');
+        const original = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<span>Signing in…</span>';
+        btn.innerHTML = '<span>Signing in...</span>';
+        setAuthStatus('Signing in...', 'info');
 
         try {
-            // Try to authenticate via API Gateway
-            const response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
-                method: 'POST',
-                body: JSON.stringify({ email, password }),
-            });
-
-            state.token = response.token || 'demo-token-' + Date.now();
-            state.user = response.user || { email, name: email.split('@')[0] };
+            await loginWithCredentials(email, password);
+            setAuthStatus('Login successful', 'success');
+            showToast('Welcome back!', 'success');
+            showApp();
         } catch (err) {
-            // Fallback: allow demo login
-            console.warn('Auth service unavailable, using demo login');
-            state.token = 'demo-token-' + Date.now();
-            state.user = {
-                email,
-                name: email.split('@')[0],
-                role: 'admin'
-            };
+            setAuthStatus(err.message || 'Login failed', 'error');
+            showToast(err.message || 'Login failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        setAuthStatus('');
+        const payload = {
+            name: $('#register-name').value.trim(),
+            email: $('#register-email').value.trim(),
+            phone: $('#register-phone').value.trim(),
+            password: $('#register-password').value,
+        };
+
+        if (!payload.name || !payload.email || !payload.phone || !payload.password) {
+            showToast('Please fill in all fields', 'warning');
+            return;
         }
 
-        localStorage.setItem('uniportal_token', state.token);
-        localStorage.setItem('uniportal_user', JSON.stringify(state.user));
+        const btn = $('#register-btn');
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span>Creating account...</span>';
+        setAuthStatus('Creating account...', 'info');
 
-        btn.disabled = false;
-        btn.innerHTML = '<span>Sign In</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
-
-        showToast('Welcome back!', 'success');
-        showApp();
+        try {
+            await registerStudent(payload);
+            setAuthStatus('Account created. Signing you in...', 'success');
+            await loginWithCredentials(payload.email, payload.password);
+            showToast('Registration successful', 'success');
+            showApp();
+        } catch (err) {
+            setAuthStatus(err.message || 'Registration failed', 'error');
+            showToast(err.message || 'Registration failed', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
     });
+}
+
+function switchAuthMode(mode) {
+    const isLogin = mode === 'login';
+    $('#auth-tab-login').classList.toggle('active', isLogin);
+    $('#auth-tab-register').classList.toggle('active', !isLogin);
+    $('#login-form').classList.toggle('hidden', !isLogin);
+    $('#register-form').classList.toggle('hidden', isLogin);
+    setAuthStatus('');
+}
+
+function setAuthStatus(message, type = '') {
+    const el = $('#auth-status');
+    if (!el) return;
+    if (!message) {
+        el.textContent = '';
+        el.className = 'auth-status hidden';
+        return;
+    }
+    el.textContent = message;
+    el.className = `auth-status ${type}`.trim();
+}
+
+async function loginWithCredentials(email, password) {
+    let response;
+    try {
+        response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+        });
+    } catch (err) {
+        if (!isConnectivityError(err)) throw err;
+        setAuthStatus('Gateway auth timeout. Retrying via Student Service...', 'info');
+        response = await fetchAPI(`${CONFIG.STUDENT_SERVICE}/auth/login`, {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+        });
+    }
+
+    if (!response?.token) {
+        throw new Error('Invalid login response from auth service');
+    }
+
+    state.token = response.token;
+    state.user = response.user || { email, name: email.split('@')[0] };
+    localStorage.setItem('uniportal_token', state.token);
+    localStorage.setItem('uniportal_user', JSON.stringify(state.user));
+}
+
+async function registerStudent(payload) {
+    try {
+        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    } catch (err) {
+        if (!isConnectivityError(err)) throw err;
+        setAuthStatus('Gateway register timeout. Retrying via Student Service...', 'info');
+        await fetchAPI(`${CONFIG.STUDENT_SERVICE}/auth/register`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+}
+
+function isConnectivityError(err) {
+    const msg = String(err?.message || '').toLowerCase();
+    return msg.includes('timed out') || msg.includes('network error') || msg.includes('failed to fetch');
 }
 
 function setupLogout() {
     $('#logout-btn').addEventListener('click', () => {
-        state.token = null;
-        state.user = null;
-        localStorage.removeItem('uniportal_token');
-        localStorage.removeItem('uniportal_user');
+        stopEnrollmentPolling();
+        clearStoredAuth();
         showLogin();
         showToast('Logged out successfully', 'info');
     });
 }
 
 function showLogin() {
+    stopEnrollmentPolling();
     $('#login-page').classList.add('active');
     $('#app-shell').classList.add('hidden');
+    switchAuthMode('login');
 }
 
 function showApp() {
@@ -167,6 +284,11 @@ function navigateTo(page) {
     };
     $('#page-title').textContent = titles[page] || page;
     state.currentPage = page;
+    if (page === 'enrollments') {
+        startEnrollmentPolling();
+    } else {
+        stopEnrollmentPolling();
+    }
 
     // Close mobile sidebar
     $('#sidebar').classList.remove('open');
@@ -181,6 +303,21 @@ function navigateTo(page) {
         case 'enrollments': loadAllEnrollments(); break;
         case 'grades': break; // loaded on filter
     }
+}
+
+function startEnrollmentPolling() {
+    stopEnrollmentPolling();
+    state.enrollmentPoller = setInterval(() => {
+        if (state.currentPage === 'enrollments') {
+            refreshEnrollmentView();
+        }
+    }, 8000);
+}
+
+function stopEnrollmentPolling() {
+    if (!state.enrollmentPoller) return;
+    clearInterval(state.enrollmentPoller);
+    state.enrollmentPoller = null;
 }
 
 // ═══════════════════════════════════════════
@@ -251,6 +388,9 @@ async function checkSystemHealth() {
         const statusEl = $(`#health-${svc.id}`);
 
         try {
+            if (svc.url.includes('placeholder')) {
+                throw new Error('Service URL placeholder');
+            }
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -320,6 +460,47 @@ function viewStudentEnrollments(studentId) {
     navigateTo('enrollments');
     $('#filter-student-id').value = studentId;
     loadEnrollmentsByStudent(studentId);
+}
+
+function setupStudentCreateForm() {
+    $('#add-student-btn').addEventListener('click', () => {
+        openModal('modal-student');
+    });
+
+    $('#student-create-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const payload = {
+            name: $('#student-create-name').value.trim(),
+            email: $('#student-create-email').value.trim(),
+            phone: $('#student-create-phone').value.trim(),
+            password: $('#student-create-password').value,
+        };
+
+        if (!payload.name || !payload.email || !payload.phone || !payload.password) {
+            showToast('Please fill in all fields', 'warning');
+            return;
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loading-spinner"></div> <span>Creating...</span>';
+
+        try {
+            await registerStudent(payload);
+            closeModal('modal-student');
+            $('#student-create-form').reset();
+            showToast('Student account created', 'success');
+            if (state.currentPage === 'students') {
+                loadStudents();
+            }
+        } catch (err) {
+            showToast(err.message || 'Failed to create student', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    });
 }
 
 // ═══════════════════════════════════════════
@@ -401,6 +582,7 @@ function setupFilters() {
 }
 
 async function loadEnrollmentsByStudent(studentId) {
+    state.enrollmentView = { type: 'student', value: studentId };
     const tbody = $('#enrollments-tbody');
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments…</td></tr>';
 
@@ -420,6 +602,7 @@ async function loadEnrollmentsByStudent(studentId) {
 }
 
 async function loadEnrollmentsByCourse(courseId) {
+    state.enrollmentView = { type: 'course', value: courseId };
     const tbody = $('#enrollments-tbody');
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster…</td></tr>';
 
@@ -438,6 +621,7 @@ async function loadEnrollmentsByCourse(courseId) {
 }
 
 async function loadAllEnrollments() {
+    state.enrollmentView = { type: 'all', value: null };
     const tbody = $('#enrollments-tbody');
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments…</td></tr>';
 
@@ -489,6 +673,19 @@ function renderEnrollmentsTable(enrollments) {
             </tr>
         `;
     }).join('');
+}
+
+async function refreshEnrollmentView() {
+    const view = state.enrollmentView || { type: 'all', value: null };
+    if (view.type === 'student' && view.value) {
+        await loadEnrollmentsByStudent(view.value);
+        return;
+    }
+    if (view.type === 'course' && view.value) {
+        await loadEnrollmentsByCourse(view.value);
+        return;
+    }
+    await loadAllEnrollments();
 }
 
 function updateRecentEnrollments(enrollments) {
@@ -559,11 +756,7 @@ function setupEnrollmentForm() {
             // Switch to enrollments page and load data
             navigateTo('enrollments');
             $('#filter-student-id').value = student_id;
-
-            // Give the DB a moment to index if needed, then load
-            setTimeout(() => {
-                loadEnrollmentsByStudent(student_id);
-            }, 800);
+            await loadEnrollmentsByStudent(student_id);
 
         } catch (err) {
             showToast(err.message || 'Failed to create enrollment', 'error');
@@ -583,10 +776,7 @@ async function cancelEnrollment(enrollmentId) {
             method: 'DELETE',
         });
         showToast('Enrollment cancelled', 'success');
-
-        // Refresh current view
-        const studentId = $('#filter-student-id').value.trim();
-        if (studentId) loadEnrollmentsByStudent(studentId);
+        await refreshEnrollmentView();
     } catch (err) {
         showToast(err.message || 'Failed to cancel enrollment', 'error');
     }
@@ -611,10 +801,7 @@ function setupStatusForm() {
             });
             showToast(`Status updated to ${status}`, 'success');
             closeModal('modal-status');
-
-            // Refresh current view
-            const studentId = $('#filter-student-id').value.trim();
-            if (studentId) loadEnrollmentsByStudent(studentId);
+            await refreshEnrollmentView();
         } catch (err) {
             showToast(err.message || 'Failed to update status', 'error');
         }
@@ -744,16 +931,38 @@ async function fetchAPI(url, options = {}) {
         headers['Authorization'] = `Bearer ${state.token}`;
     }
 
-    const response = await fetch(url, {
-        ...options,
-        headers,
-        mode: 'cors',
-    });
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs || 15000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response;
+    try {
+        response = await fetch(url, {
+            ...options,
+            headers,
+            mode: 'cors',
+            signal: controller.signal,
+        });
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            throw new Error('Request timed out. Please try again.');
+        }
+        throw new Error('Network error. Check API Gateway/CORS/service availability.');
+    } finally {
+        clearTimeout(timer);
+    }
 
     const data = await response.json().catch(() => null);
 
     if (!response.ok) {
-        throw new Error(data?.message || `HTTP ${response.status}: ${response.statusText}`);
+        const message = data?.message || data?.error || data?.details || `HTTP ${response.status}: ${response.statusText}`;
+        if ((response.status === 401 || response.status === 403) && /invalid|expired|token|required/i.test(message)) {
+            clearStoredAuth();
+            showLogin();
+        }
+        throw new Error(
+            message
+        );
     }
 
     return data;
