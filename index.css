@@ -207,11 +207,60 @@ body {
     margin-top: 0.25rem;
 }
 
+.auth-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.auth-tab {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--duration) var(--ease);
+}
+
+.auth-tab:hover {
+    color: var(--text-primary);
+    border-color: var(--indigo);
+}
+
+.auth-tab.active {
+    color: #fff;
+    border-color: var(--indigo);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25));
+}
+
 .login-hint {
     text-align: center;
     color: var(--text-muted);
     font-size: 0.8rem;
     margin-top: 1.25rem;
+}
+
+.auth-status {
+    text-align: center;
+    font-size: 0.82rem;
+    margin-top: 0.9rem;
+    font-weight: 600;
+}
+
+.auth-status.info {
+    color: var(--amber);
+}
+
+.auth-status.success {
+    color: var(--emerald);
+}
+
+.auth-status.error {
+    color: var(--rose);
 }
 
 /* ── Glass Card ──────────────────────────── */
