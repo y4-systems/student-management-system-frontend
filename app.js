@@ -424,11 +424,11 @@ async function loadDashboardStats() {
 
 async function checkSystemHealth() {
     const services = [
-        { id: 'gateway', url: CONFIG.GATEWAY_URL, name: 'API Gateway' },
+        { id: 'gateway', url: `${CONFIG.GATEWAY_URL}/health`, name: 'API Gateway' },
         { id: 'student', url: CONFIG.STUDENT_SERVICE, name: 'Student Service' },
-        { id: 'course', url: CONFIG.COURSE_SERVICE, name: 'Course Service' },
+        { id: 'course', url: `${CONFIG.COURSE_SERVICE}/health`, name: 'Course Service' },
         { id: 'enrollment', url: CONFIG.ENROLLMENT_SERVICE, name: 'Enrollment Service' },
-        { id: 'grade', url: CONFIG.GRADE_SERVICE, name: 'Grade Service' },
+        { id: 'grade', url: `${CONFIG.GRADE_SERVICE}/health`, name: 'Grade Service' },
     ];
 
     let allOnline = true;
