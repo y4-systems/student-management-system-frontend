@@ -39,6 +39,10 @@ function clearStoredAuth() {
     localStorage.removeItem('uniportal_user');
 }
 
+function getCurrentStudentId() {
+    return state.user?.id || state.user?._id || null;
+}
+
 // ── DOM References ────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -351,9 +355,10 @@ async function loadDashboard() {
 async function loadDashboardStats() {
     // Students count
     try {
-        const students = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
-        const count = Array.isArray(students) ? students.length : (students?.count || '—');
-        $('#stat-students').textContent = count;
+        const studentId = getCurrentStudentId();
+        if (!studentId) throw new Error('Missing student id');
+        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
+        $('#stat-students').textContent = '1';
     } catch {
         $('#stat-students').textContent = '—';
     }
@@ -431,7 +436,13 @@ async function loadStudents() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading students…</td></tr>';
 
     try {
-        const students = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
+        const studentId = getCurrentStudentId();
+        if (!studentId) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No student id in session</td></tr>';
+            return;
+        }
+        const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
+        const students = student ? [student] : [];
 
         if (!Array.isArray(students) || students.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No students found</td></tr>';
