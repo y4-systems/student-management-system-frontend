@@ -145,6 +145,7 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input type="text" id="global-search" placeholder="Search…" />
                     </div>
+                    <span class="badge badge-info" id="user-role-badge">student</span>
                     <div class="user-avatar" id="user-avatar">
                         <span>A</span>
                     </div>
@@ -448,6 +449,26 @@
                     <button type="submit" class="btn btn-primary">Create</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal-overlay" id="modal-profile">
+        <div class="modal glass-card">
+            <div class="modal-header">
+                <h3>My Profile</h3>
+                <button class="modal-close" data-close="modal-profile">&times;</button>
+            </div>
+            <div class="profile-details">
+                <div class="profile-row"><span>Name</span><strong id="profile-name">—</strong></div>
+                <div class="profile-row"><span>Email</span><strong id="profile-email">—</strong></div>
+                <div class="profile-row"><span>Phone</span><strong id="profile-phone">—</strong></div>
+                <div class="profile-row"><span>Student ID</span><strong id="profile-id">—</strong></div>
+                <div class="profile-row"><span>Role</span><strong id="profile-role">student</strong></div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" data-close="modal-profile">Close</button>
+            </div>
         </div>
     </div>
 

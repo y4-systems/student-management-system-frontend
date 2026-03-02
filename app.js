@@ -24,6 +24,7 @@ let state = {
     currentPage: 'dashboard',
     enrollmentView: { type: 'all', value: null },
     enrollmentPoller: null,
+    enrollmentRefreshInProgress: false,
 };
 
 function looksLikeJWT(token) {
@@ -39,8 +40,39 @@ function clearStoredAuth() {
     localStorage.removeItem('uniportal_user');
 }
 
+function decodeJWTPayload(token) {
+    if (!looksLikeJWT(token)) return null;
+    try {
+        const payload = token.split('.')[1]
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+        return JSON.parse(atob(payload));
+    } catch {
+        return null;
+    }
+}
+
+function hydrateUserFromToken() {
+    const claims = decodeJWTPayload(state.token);
+    if (!claims) return;
+
+    state.user = {
+        ...(state.user || {}),
+        id: state.user?.id || state.user?._id || claims.id || claims.sub || null,
+        email: state.user?.email || claims.email || null,
+        name: state.user?.name || claims.name || claims.email?.split('@')?.[0] || 'User',
+        role: state.user?.role || claims.role || 'student',
+    };
+
+    localStorage.setItem('uniportal_user', JSON.stringify(state.user));
+}
+
 function getCurrentStudentId() {
-    return state.user?.id || state.user?._id || null;
+    return state.user?.id || state.user?._id || decodeJWTPayload(state.token)?.id || decodeJWTPayload(state.token)?.sub || null;
+}
+
+function getCurrentUserRole() {
+    return state.user?.role || decodeJWTPayload(state.token)?.role || 'student';
 }
 
 // ── DOM References ────────────────────────
@@ -59,6 +91,7 @@ function initApp() {
     if (state.token && !looksLikeJWT(state.token)) {
         clearStoredAuth();
     }
+    hydrateUserFromToken();
 
     // Check if user is logged in
     if (state.token) {
@@ -75,6 +108,7 @@ function initApp() {
     setupEnrollmentForm();
     setupStatusForm();
     setupFilters();
+    setupProfile();
     setupLogout();
     setupMobileMenu();
 }
@@ -199,7 +233,13 @@ async function loginWithCredentials(email, password) {
     }
 
     state.token = response.token;
-    state.user = response.user || { email, name: email.split('@')[0] };
+    const claims = decodeJWTPayload(response.token) || {};
+    const baseUser = response.user || { email, name: email.split('@')[0] };
+    state.user = {
+        ...baseUser,
+        id: baseUser.id || baseUser._id || claims.id || claims.sub || null,
+        role: baseUser.role || claims.role || 'student',
+    };
     localStorage.setItem('uniportal_token', state.token);
     localStorage.setItem('uniportal_user', JSON.stringify(state.user));
 }
@@ -249,6 +289,9 @@ function showApp() {
     if (state.user?.name) {
         $('#user-avatar span').textContent = state.user.name.charAt(0).toUpperCase();
     }
+    $('#user-role-badge').textContent = getCurrentUserRole();
+    applyEnrollmentAccessControls();
+    populateProfileModal();
 
     // Load dashboard data
     loadDashboard();
@@ -267,7 +310,7 @@ function setupNavigation() {
     });
 }
 
-function navigateTo(page) {
+function navigateTo(page, options = {}) {
     // Update active nav
     $$('.nav-item[data-page]').forEach(n => n.classList.remove('active'));
     const activeNav = $(`.nav-item[data-page="${page}"]`);
@@ -300,12 +343,14 @@ function navigateTo(page) {
     if (overlay) overlay.classList.remove('show');
 
     // Load page data
-    switch (page) {
-        case 'dashboard': loadDashboard(); break;
-        case 'students': loadStudents(); break;
-        case 'courses': loadCourses(); break;
-        case 'enrollments': loadAllEnrollments(); break;
-        case 'grades': break; // loaded on filter
+    if (!options.skipPageLoad) {
+        switch (page) {
+            case 'dashboard': loadDashboard(); break;
+            case 'students': loadStudents(); break;
+            case 'courses': loadCourses(); break;
+            case 'enrollments': loadAllEnrollments(); break;
+            case 'grades': break; // loaded on filter
+        }
     }
 }
 
@@ -468,7 +513,7 @@ async function loadStudents() {
 }
 
 function viewStudentEnrollments(studentId) {
-    navigateTo('enrollments');
+    navigateTo('enrollments', { skipPageLoad: true });
     $('#filter-student-id').value = studentId;
     loadEnrollmentsByStudent(studentId);
 }
@@ -551,7 +596,7 @@ async function loadCourses() {
 }
 
 function viewCourseRoster(courseId) {
-    navigateTo('enrollments');
+    navigateTo('enrollments', { skipPageLoad: true });
     showToast(`Loading roster for course ${courseId}…`, 'info');
     loadEnrollmentsByCourse(courseId);
 }
@@ -561,6 +606,13 @@ function viewCourseRoster(courseId) {
 // ═══════════════════════════════════════════
 function setupFilters() {
     $('#filter-enrollments-btn').addEventListener('click', () => {
+        if (getCurrentUserRole() !== 'admin') {
+            const ownId = getCurrentStudentId();
+            if (ownId) {
+                loadEnrollmentsByStudent(ownId);
+            }
+            return;
+        }
         const studentId = $('#filter-student-id').value.trim();
         if (!studentId) {
             loadAllEnrollments();
@@ -592,10 +644,39 @@ function setupFilters() {
     });
 }
 
-async function loadEnrollmentsByStudent(studentId) {
+function applyEnrollmentAccessControls() {
+    const isAdmin = getCurrentUserRole() === 'admin';
+    const ownId = getCurrentStudentId();
+    const filterInput = $('#filter-student-id');
+    const filterBtn = $('#filter-enrollments-btn');
+
+    if (!filterInput || !filterBtn) return;
+
+    if (!isAdmin) {
+        filterInput.value = ownId || '';
+        filterInput.disabled = true;
+        filterInput.placeholder = 'Your student ID';
+        filterBtn.textContent = 'My Enrollments';
+    } else {
+        filterInput.disabled = false;
+        filterInput.placeholder = 'e.g. S1001';
+        filterBtn.textContent = 'Search';
+    }
+}
+
+async function loadEnrollmentsByStudent(studentId, options = {}) {
+    const { silent = false } = options;
+    const ownId = getCurrentStudentId();
+    if (getCurrentUserRole() !== 'admin' && ownId && studentId !== ownId) {
+        studentId = ownId;
+        $('#filter-student-id').value = ownId;
+    }
+
     state.enrollmentView = { type: 'student', value: studentId };
     const tbody = $('#enrollments-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments…</td></tr>';
+    if (!silent) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments…</td></tr>';
+    }
 
     try {
         const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/student/${studentId}`);
@@ -612,10 +693,13 @@ async function loadEnrollmentsByStudent(studentId) {
     }
 }
 
-async function loadEnrollmentsByCourse(courseId) {
+async function loadEnrollmentsByCourse(courseId, options = {}) {
+    const { silent = false } = options;
     state.enrollmentView = { type: 'course', value: courseId };
     const tbody = $('#enrollments-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster…</td></tr>';
+    if (!silent) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster…</td></tr>';
+    }
 
     try {
         const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/course/${courseId}`);
@@ -631,10 +715,18 @@ async function loadEnrollmentsByCourse(courseId) {
     }
 }
 
-async function loadAllEnrollments() {
+async function loadAllEnrollments(options = {}) {
+    const { silent = false } = options;
+    const ownId = getCurrentStudentId();
+    if (getCurrentUserRole() !== 'admin' && ownId) {
+        return loadEnrollmentsByStudent(ownId, options);
+    }
+
     state.enrollmentView = { type: 'all', value: null };
     const tbody = $('#enrollments-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments…</td></tr>';
+    if (!silent) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments…</td></tr>';
+    }
 
     try {
         const enrollments = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments`);
@@ -687,16 +779,23 @@ function renderEnrollmentsTable(enrollments) {
 }
 
 async function refreshEnrollmentView() {
+    if (state.enrollmentRefreshInProgress) return;
+    state.enrollmentRefreshInProgress = true;
+
     const view = state.enrollmentView || { type: 'all', value: null };
-    if (view.type === 'student' && view.value) {
-        await loadEnrollmentsByStudent(view.value);
-        return;
+    try {
+        if (view.type === 'student' && view.value) {
+            await loadEnrollmentsByStudent(view.value, { silent: true });
+            return;
+        }
+        if (view.type === 'course' && view.value) {
+            await loadEnrollmentsByCourse(view.value, { silent: true });
+            return;
+        }
+        await loadAllEnrollments({ silent: true });
+    } finally {
+        state.enrollmentRefreshInProgress = false;
     }
-    if (view.type === 'course' && view.value) {
-        await loadEnrollmentsByCourse(view.value);
-        return;
-    }
-    await loadAllEnrollments();
 }
 
 function updateRecentEnrollments(enrollments) {
@@ -735,13 +834,27 @@ function updateRecentEnrollments(enrollments) {
 // ── Create Enrollment ──────────────────────
 function setupEnrollmentForm() {
     $('#new-enrollment-btn').addEventListener('click', () => {
+        const isAdmin = getCurrentUserRole() === 'admin';
+        const ownId = getCurrentStudentId();
+        const studentInput = $('#enroll-student-id');
+        if (!isAdmin && ownId) {
+            studentInput.value = ownId;
+            studentInput.readOnly = true;
+        } else {
+            studentInput.readOnly = false;
+            studentInput.value = '';
+        }
         openModal('modal-enrollment');
     });
 
     $('#enrollment-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const student_id = $('#enroll-student-id').value.trim();
+        let student_id = $('#enroll-student-id').value.trim();
         const course_id = $('#enroll-course-id').value.trim();
+        const ownId = getCurrentStudentId();
+        if (getCurrentUserRole() !== 'admin' && ownId) {
+            student_id = ownId;
+        }
 
         if (!student_id || !course_id) {
             showToast('Please fill in both fields', 'warning');
@@ -765,7 +878,7 @@ function setupEnrollmentForm() {
             $('#enrollment-form').reset();
 
             // Switch to enrollments page and load data
-            navigateTo('enrollments');
+            navigateTo('enrollments', { skipPageLoad: true });
             $('#filter-student-id').value = student_id;
             await loadEnrollmentsByStudent(student_id);
 
@@ -776,6 +889,26 @@ function setupEnrollmentForm() {
             btn.innerHTML = originalText;
         }
     });
+}
+
+function setupProfile() {
+    const avatar = $('#user-avatar');
+    if (avatar) {
+        avatar.addEventListener('click', () => {
+            populateProfileModal();
+            openModal('modal-profile');
+        });
+    }
+}
+
+function populateProfileModal() {
+    const user = state.user || {};
+    const role = getCurrentUserRole();
+    $('#profile-name').textContent = user.name || '—';
+    $('#profile-email').textContent = user.email || '—';
+    $('#profile-phone').textContent = user.phone || '—';
+    $('#profile-id').textContent = getCurrentStudentId() || '—';
+    $('#profile-role').textContent = role;
 }
 
 // ── Cancel Enrollment ──────────────────────
