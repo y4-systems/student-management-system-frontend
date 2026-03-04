@@ -72,12 +72,19 @@
                         <label for="register-password">Password</label>
                         <input type="password" id="register-password" placeholder="Minimum 6 characters" minlength="6" required />
                     </div>
+                    <div class="form-group">
+                        <label for="register-role">Role</label>
+                        <select id="register-role" required>
+                            <option value="student" selected>Student</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
                     <button type="submit" id="register-btn" class="btn btn-primary btn-full">
                         <span>Create Account</span>
                     </button>
                 </form>
                 <p id="auth-status" class="auth-status hidden"></p>
-                <p class="login-hint">Use your Student Service credentials</p>
+                <p class="login-hint">Use your User Service credentials</p>
             </div>
         </div>
     </div>
@@ -219,7 +226,7 @@
                                 </div>
                                 <div class="health-item">
                                     <span class="health-dot"></span>
-                                    <span>Student Service</span>
+                                    <span>User Service</span>
                                     <span class="health-status" id="health-student">…</span>
                                 </div>
                                 <div class="health-item">
@@ -420,6 +427,38 @@
         </div>
     </div>
 
+    <!-- Create Course Modal -->
+    <div class="modal-overlay" id="modal-course">
+        <div class="modal glass-card">
+            <div class="modal-header">
+                <h3>Create Course</h3>
+                <button class="modal-close" data-close="modal-course">&times;</button>
+            </div>
+            <form id="course-create-form">
+                <div class="form-group">
+                    <label for="course-create-name">Course Name</label>
+                    <input type="text" id="course-create-name" placeholder="Cloud Computing" required />
+                </div>
+                <div class="form-group">
+                    <label for="course-create-description">Description</label>
+                    <input type="text" id="course-create-description" placeholder="Learn AWS, GCP and Azure" />
+                </div>
+                <div class="form-group">
+                    <label for="course-create-capacity">Capacity</label>
+                    <input type="number" id="course-create-capacity" min="1" value="30" required />
+                </div>
+                <div class="form-group">
+                    <label for="course-create-credits">Credits</label>
+                    <input type="number" id="course-create-credits" min="1" value="3" required />
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="modal-course">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Create Student Modal -->
     <div class="modal-overlay" id="modal-student">
         <div class="modal glass-card">
@@ -443,6 +482,13 @@
                 <div class="form-group">
                     <label for="student-create-password">Password</label>
                     <input type="password" id="student-create-password" placeholder="Minimum 6 characters" minlength="6" required />
+                </div>
+                <div class="form-group">
+                    <label for="student-create-role">Role</label>
+                    <select id="student-create-role" required>
+                        <option value="student" selected>Student</option>
+                        <option value="admin">Admin</option>
+                    </select>
                 </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-ghost" data-close="modal-student">Cancel</button>

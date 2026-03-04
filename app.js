@@ -11,7 +11,7 @@ const CONFIG = {
     // GATEWAY_URL: 'http://localhost:8080',
 
     // Individual service URLs (fallback / direct access)
-    STUDENT_SERVICE: 'https://student-service-283974567418.us-central1.run.app',
+    USER_SERVICE: 'https://user-service-283974567418.us-central1.run.app',
     COURSE_SERVICE: 'https://course-service-506720768686.us-central1.run.app',
     ENROLLMENT_SERVICE: 'https://enrollment-service-763150334229.us-central1.run.app',
     GRADE_SERVICE: 'https://grade-service-placeholder.us-central1.run.app',
@@ -105,6 +105,7 @@ function initApp() {
     setupNavigation();
     setupModals();
     setupStudentCreateForm();
+    setupCourseCreateForm();
     setupEnrollmentForm();
     setupStatusForm();
     setupFilters();
@@ -162,9 +163,10 @@ function setupAuthForms() {
             email: $('#register-email').value.trim(),
             phone: $('#register-phone').value.trim(),
             password: $('#register-password').value,
+            role: ($('#register-role').value || 'student').trim().toLowerCase(),
         };
 
-        if (!payload.name || !payload.email || !payload.phone || !payload.password) {
+        if (!payload.name || !payload.email || !payload.phone || !payload.password || !payload.role) {
             showToast('Please fill in all fields', 'warning');
             return;
         }
@@ -221,8 +223,8 @@ async function loginWithCredentials(email, password) {
         });
     } catch (err) {
         if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway auth timeout. Retrying via Student Service...', 'info');
-        response = await fetchAPI(`${CONFIG.STUDENT_SERVICE}/auth/login`, {
+        setAuthStatus('Gateway auth timeout. Retrying via User Service...', 'info');
+        response = await fetchAPI(`${CONFIG.USER_SERVICE}/auth/login`, {
             method: 'POST',
             body: JSON.stringify({ email, password }),
         });
@@ -252,8 +254,8 @@ async function registerStudent(payload) {
         });
     } catch (err) {
         if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway register timeout. Retrying via Student Service...', 'info');
-        await fetchAPI(`${CONFIG.STUDENT_SERVICE}/auth/register`, {
+        setAuthStatus('Gateway register timeout. Retrying via User Service...', 'info');
+        await fetchAPI(`${CONFIG.USER_SERVICE}/auth/register`, {
             method: 'POST',
             body: JSON.stringify(payload),
         });
@@ -290,6 +292,7 @@ function showApp() {
         $('#user-avatar span').textContent = state.user.name.charAt(0).toUpperCase();
     }
     $('#user-role-badge').textContent = getCurrentUserRole();
+    applyRoleAccessControls();
     applyEnrollmentAccessControls();
     populateProfileModal();
 
@@ -425,7 +428,7 @@ async function loadDashboardStats() {
 async function checkSystemHealth() {
     const services = [
         { id: 'gateway', url: `${CONFIG.GATEWAY_URL}/health`, name: 'API Gateway' },
-        { id: 'student', url: CONFIG.STUDENT_SERVICE, name: 'Student Service' },
+        { id: 'student', url: CONFIG.USER_SERVICE, name: 'User Service' },
         { id: 'course', url: `${CONFIG.COURSE_SERVICE}/health`, name: 'Course Service' },
         { id: 'enrollment', url: CONFIG.ENROLLMENT_SERVICE, name: 'Enrollment Service' },
         { id: 'grade', url: `${CONFIG.GRADE_SERVICE}/health`, name: 'Grade Service' },
@@ -520,6 +523,10 @@ function viewStudentEnrollments(studentId) {
 
 function setupStudentCreateForm() {
     $('#add-student-btn').addEventListener('click', () => {
+        if (getCurrentUserRole() !== 'admin') {
+            showToast('Only admins can create users', 'warning');
+            return;
+        }
         openModal('modal-student');
     });
 
@@ -530,9 +537,10 @@ function setupStudentCreateForm() {
             email: $('#student-create-email').value.trim(),
             phone: $('#student-create-phone').value.trim(),
             password: $('#student-create-password').value,
+            role: ($('#student-create-role').value || 'student').trim().toLowerCase(),
         };
 
-        if (!payload.name || !payload.email || !payload.phone || !payload.password) {
+        if (!payload.name || !payload.email || !payload.phone || !payload.password || !payload.role) {
             showToast('Please fill in all fields', 'warning');
             return;
         }
@@ -559,7 +567,124 @@ function setupStudentCreateForm() {
     });
 }
 
-// ═══════════════════════════════════════════
+async function editStudent(studentId) {
+    try {
+        const current = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
+        const name = prompt('Update name:', current?.name || '');
+        if (name === null) return;
+        const email = prompt('Update email:', current?.email || '');
+        if (email === null) return;
+        const phone = prompt('Update phone:', current?.phone || '');
+        if (phone === null) return;
+
+        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                name: String(name || '').trim(),
+                email: String(email || '').trim(),
+                phone: String(phone || '').trim(),
+            }),
+        });
+
+        showToast('Student updated', 'success');
+        await loadStudents();
+    } catch (err) {
+        showToast(err.message || 'Failed to update student', 'error');
+    }
+}
+
+async function deleteStudent(studentId) {
+    if (!confirm('Delete this student account? This cannot be undone.')) return;
+
+    try {
+        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`, {
+            method: 'DELETE',
+        });
+
+        showToast('Student deleted', 'success');
+
+        if (String(studentId) === String(getCurrentStudentId())) {
+            stopEnrollmentPolling();
+            clearStoredAuth();
+            showLogin();
+            return;
+        }
+
+        await loadStudents();
+    } catch (err) {
+        showToast(err.message || 'Failed to delete student', 'error');
+    }
+}
+
+function setupCourseCreateForm() {
+    const btn = $('#add-course-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        if (getCurrentUserRole() !== 'admin') {
+            showToast('Only admins can create courses', 'warning');
+            return;
+        }
+        openModal('modal-course');
+    });
+
+    const form = $('#course-create-form');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const payload = {
+            name: $('#course-create-name').value.trim(),
+            description: $('#course-create-description').value.trim(),
+            capacity: Number($('#course-create-capacity').value),
+            credits: Number($('#course-create-credits').value),
+        };
+
+        if (!payload.name || !Number.isFinite(payload.capacity) || !Number.isFinite(payload.credits)) {
+            showToast('Name, capacity and credits are required', 'warning');
+            return;
+        }
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const original = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<div class="loading-spinner"></div> <span>Creating...</span>';
+
+        try {
+            await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            showToast('Course created', 'success');
+            form.reset();
+            $('#course-create-capacity').value = '30';
+            $('#course-create-credits').value = '3';
+            closeModal('modal-course');
+            if (state.currentPage === 'courses') {
+                await loadCourses();
+            }
+        } catch (err) {
+            showToast(err.message || 'Failed to create course', 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = original;
+        }
+    });
+}
+
+function applyRoleAccessControls() {
+    const isAdmin = getCurrentUserRole() === 'admin';
+    const studentBtn = $('#add-student-btn');
+    const courseBtn = $('#add-course-btn');
+
+    if (studentBtn) {
+        studentBtn.style.display = isAdmin ? '' : 'none';
+    }
+    if (courseBtn) {
+        courseBtn.style.display = isAdmin ? '' : 'none';
+    }
+}
 //  COURSES
 // ═══════════════════════════════════════════
 async function loadCourses() {
@@ -1127,5 +1252,9 @@ function hashCode(str) {
 window.navigateTo = navigateTo;
 window.viewStudentEnrollments = viewStudentEnrollments;
 window.viewCourseRoster = viewCourseRoster;
+window.editStudent = editStudent;
+window.deleteStudent = deleteStudent;
 window.cancelEnrollment = cancelEnrollment;
 window.openStatusModal = openStatusModal;
+
+
