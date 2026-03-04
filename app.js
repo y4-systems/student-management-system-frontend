@@ -1,9 +1,9 @@
-/* ═══════════════════════════════════════════
-   UNIPORTAL — Application Logic
+﻿/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   UNIPORTAL â€” Application Logic
    Student Management System Frontend
-   ═══════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
-// ── API Configuration ─────────────────────
+// â”€â”€ API Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CONFIG = {
     // Point to the API Gateway
     GATEWAY_URL: 'https://api-gateway-763150334229.us-central1.run.app',
@@ -17,10 +17,11 @@ const CONFIG = {
     GRADE_SERVICE: 'https://grade-service-placeholder.us-central1.run.app',
 };
 
-// ── State ─────────────────────────────────
+// â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let state = {
     token: localStorage.getItem('uniportal_token') || null,
     user: JSON.parse(localStorage.getItem('uniportal_user') || 'null'),
+    adminCreatedStudents: JSON.parse(localStorage.getItem('uniportal_admin_students') || '[]'),
     currentPage: 'dashboard',
     enrollmentView: { type: 'all', value: null },
     enrollmentPoller: null,
@@ -36,8 +37,10 @@ function looksLikeJWT(token) {
 function clearStoredAuth() {
     state.token = null;
     state.user = null;
+    state.adminCreatedStudents = [];
     localStorage.removeItem('uniportal_token');
     localStorage.removeItem('uniportal_user');
+    localStorage.removeItem('uniportal_admin_students');
 }
 
 function decodeJWTPayload(token) {
@@ -75,13 +78,13 @@ function getCurrentUserRole() {
     return state.user?.role || decodeJWTPayload(state.token)?.role || 'student';
 }
 
-// ── DOM References ────────────────────────
+// â”€â”€ DOM References â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  INITIALIZATION
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
 });
@@ -114,9 +117,9 @@ function initApp() {
     setupMobileMenu();
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  AUTHENTICATION
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupAuthForms() {
     const loginForm = $('#login-form');
     const registerForm = $('#register-form');
@@ -248,14 +251,14 @@ async function loginWithCredentials(email, password) {
 
 async function registerStudent(payload) {
     try {
-        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
+        return await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
             method: 'POST',
             body: JSON.stringify(payload),
         });
     } catch (err) {
         if (!isConnectivityError(err)) throw err;
         setAuthStatus('Gateway register timeout. Retrying via User Service...', 'info');
-        await fetchAPI(`${CONFIG.USER_SERVICE}/auth/register`, {
+        return await fetchAPI(`${CONFIG.USER_SERVICE}/auth/register`, {
             method: 'POST',
             body: JSON.stringify(payload),
         });
@@ -300,9 +303,9 @@ function showApp() {
     loadDashboard();
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  NAVIGATION
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupNavigation() {
     $$('.nav-item[data-page]').forEach(item => {
         item.addEventListener('click', (e) => {
@@ -372,9 +375,9 @@ function stopEnrollmentPolling() {
     state.enrollmentPoller = null;
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  MOBILE MENU
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupMobileMenu() {
     // Create overlay
     const overlay = document.createElement('div');
@@ -392,37 +395,56 @@ function setupMobileMenu() {
     });
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  DASHBOARD
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function loadDashboard() {
     checkSystemHealth();
     loadDashboardStats();
 }
 
 async function loadDashboardStats() {
+    const role = getCurrentUserRole();
+    const ownId = getCurrentStudentId();
+
     // Students count
     try {
-        const studentId = getCurrentStudentId();
-        if (!studentId) throw new Error('Missing student id');
-        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
-        $('#stat-students').textContent = '1';
+        if (role !== 'admin') {
+            if (!ownId) throw new Error('Missing student id');
+            await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${ownId}`);
+            $('#stat-students').textContent = '1';
+        } else {
+            const localCount = Array.isArray(state.adminCreatedStudents) ? state.adminCreatedStudents.length : 0;
+            $('#stat-students').textContent = String(localCount);
+        }
     } catch {
-        $('#stat-students').textContent = '—';
+        $('#stat-students').textContent = '0';
     }
 
     // Courses count
     try {
         const courses = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`);
-        const count = Array.isArray(courses) ? courses.length : (courses?.count || '—');
+        const count = Array.isArray(courses) ? courses.length : (courses?.count || 0);
         $('#stat-courses').textContent = count;
     } catch {
-        $('#stat-courses').textContent = '—';
+        $('#stat-courses').textContent = '0';
     }
 
-    // We can't easily get total enrollments without a dedicated endpoint
-    $('#stat-enrollments').textContent = '—';
-    $('#stat-gpa').textContent = '—';
+    // Enrollments count (admin = all, student = own)
+    try {
+        const enrollments = role === 'admin'
+            ? await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments`)
+            : await fetchAPI(`${CONFIG.GATEWAY_URL}/api/enrollments/student/${ownId}`);
+        $('#stat-enrollments').textContent = Array.isArray(enrollments) ? enrollments.length : '0';
+        if (Array.isArray(enrollments)) {
+            const enriched = await enrichEnrollmentRows(enrollments.slice(0, 5));
+            updateRecentEnrollments(enriched);
+        }
+    } catch {
+        $('#stat-enrollments').textContent = '0';
+        updateRecentEnrollments([]);
+    }
+    $('#stat-gpa').textContent = '-';
 }
 
 async function checkSystemHealth() {
@@ -476,42 +498,62 @@ async function checkSystemHealth() {
     }
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  STUDENTS
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function loadStudents() {
     const tbody = $('#students-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading students…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading students...</td></tr>';
 
     try {
+        const role = getCurrentUserRole();
         const studentId = getCurrentStudentId();
-        if (!studentId) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No student id in session</td></tr>';
-            return;
+        let students = [];
+
+        if (studentId) {
+            try {
+                const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
+                if (student) students.push(student);
+            } catch (err) {
+                // Admin IDs may exist in admin collection and not resolve under /api/students/{id}.
+                if (role !== 'admin') throw err;
+            }
         }
-        const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
-        const students = student ? [student] : [];
+
+        if (getCurrentUserRole() === 'admin' && Array.isArray(state.adminCreatedStudents)) {
+            const dedup = new Map();
+            students.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
+            state.adminCreatedStudents.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
+            students = [...dedup.values()];
+        }
 
         if (!Array.isArray(students) || students.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No students found</td></tr>';
             return;
         }
 
-        tbody.innerHTML = students.map(s => `
+        const isAdminUser = getCurrentUserRole() === 'admin';
+        tbody.innerHTML = students.map(s => {
+            const rowId = s._id || s.studentId || s.id;
+            const canMutateStudent = isAdminUser || String(rowId || '') === String(getCurrentStudentId() || '');
+            return `
             <tr>
-                <td><code>${s._id || s.studentId || s.id || '—'}</code></td>
-                <td>${s.name || s.firstName + ' ' + (s.lastName || '') || '—'}</td>
-                <td>${s.email || '—'}</td>
-                <td>${s.programme || s.department || '—'}</td>
+                <td><code>${rowId || '-'}</code></td>
+                <td>${s.name || s.firstName + ' ' + (s.lastName || '') || '-'}</td>
+                <td>${s.email || '-'}</td>
+                <td>${s.programme || s.department || '-'}</td>
                 <td><span class="badge badge-success">${s.status || 'Active'}</span></td>
                 <td class="actions-cell">
-                    <button class="btn btn-outline btn-xs" onclick="viewStudentEnrollments('${s._id || s.studentId || s.id}')">Enrollments</button>
+                    <button class="btn btn-outline btn-xs" onclick="viewStudentEnrollments('${rowId}')">Enrollments</button>
+                    ${canMutateStudent ? `<button class="btn btn-outline btn-xs" onclick="editStudent('${rowId}')">Edit</button>` : ''}
+                    ${canMutateStudent ? `<button class="btn btn-danger btn-xs" onclick="deleteStudent('${rowId}')">Delete</button>` : ''}
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
     } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Unable to load students — ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Unable to load students - ${err.message}</td></tr>`;
     }
 }
 
@@ -551,7 +593,21 @@ function setupStudentCreateForm() {
         btn.innerHTML = '<div class="loading-spinner"></div> <span>Creating...</span>';
 
         try {
-            await registerStudent(payload);
+            const created = await registerStudent(payload);
+            if (created?.id || created?._id || created?.studentId) {
+                const createdStudent = {
+                    _id: created.id || created._id || created.studentId,
+                    id: created.id || created._id || created.studentId,
+                    name: created.name || payload.name,
+                    email: created.email || payload.email,
+                    phone: created.phone || payload.phone,
+                };
+                state.adminCreatedStudents = [
+                    ...(Array.isArray(state.adminCreatedStudents) ? state.adminCreatedStudents : []),
+                    createdStudent,
+                ];
+                localStorage.setItem('uniportal_admin_students', JSON.stringify(state.adminCreatedStudents));
+            }
             closeModal('modal-student');
             $('#student-create-form').reset();
             showToast('Student account created', 'success');
@@ -686,10 +742,10 @@ function applyRoleAccessControls() {
     }
 }
 //  COURSES
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function loadCourses() {
     const grid = $('#courses-grid');
-    grid.innerHTML = '<div class="empty-state">Loading courses…</div>';
+    grid.innerHTML = '<div class="empty-state">Loading courses...</div>';
 
     try {
         const courses = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`);
@@ -704,11 +760,11 @@ async function loadCourses() {
             const color = colors[Math.abs(hashCode(c._id || c.courseId || '')) % colors.length];
             return `
                 <div class="course-card">
-                    <h4>${c.name || c.courseName || c.title || '—'}</h4>
-                    <p><strong>ID:</strong> ${c._id || c.courseId || c.id || '—'}</p>
+                    <h4>${c.name || c.courseName || c.title || '-'}</h4>
+                    <p><strong>ID:</strong> ${c._id || c.courseId || c.id || '-'}</p>
                     <p>${c.description || ''}</p>
                     <div class="course-card-footer">
-                        <span class="course-credits">${c.credits || '—'} Credits</span>
+                        <span class="course-credits">${c.credits || '-'} Credits</span>
                         <button class="btn btn-outline btn-xs" onclick="viewCourseRoster('${c._id || c.courseId || c.id}')">View Roster</button>
                     </div>
                 </div>
@@ -716,19 +772,54 @@ async function loadCourses() {
         }).join('');
 
     } catch (err) {
-        grid.innerHTML = `<div class="empty-state">Unable to load courses — ${err.message}</div>`;
+        grid.innerHTML = `<div class="empty-state">Unable to load courses - ${err.message}</div>`;
     }
 }
 
 function viewCourseRoster(courseId) {
     navigateTo('enrollments', { skipPageLoad: true });
-    showToast(`Loading roster for course ${courseId}…`, 'info');
+    showToast(`Loading roster for course ${courseId}...`, 'info');
     loadEnrollmentsByCourse(courseId);
 }
 
-// ═══════════════════════════════════════════
+async function enrichEnrollmentRows(enrollments) {
+    if (!Array.isArray(enrollments) || enrollments.length === 0) return [];
+
+    const courseNameById = {};
+    try {
+        const courses = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses`);
+        if (Array.isArray(courses)) {
+            for (const c of courses) {
+                const id = c?._id || c?.courseId || c?.id;
+                const name = c?.name || c?.courseName || c?.title;
+                if (id && name) courseNameById[String(id)] = name;
+            }
+        }
+    } catch {
+        // Keep IDs if lookup fails
+    }
+
+    const studentIds = [...new Set(enrollments.map((e) => String(e?.student_id || '')).filter(Boolean))];
+    const studentNameById = {};
+    await Promise.all(studentIds.map(async (id) => {
+        try {
+            const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${id}`);
+            if (student?.name) studentNameById[id] = student.name;
+        } catch {
+            // Keep IDs if lookup fails
+        }
+    }));
+
+    return enrollments.map((e) => ({
+        ...e,
+        student_name: studentNameById[String(e.student_id)] || e.student_id,
+        course_name: courseNameById[String(e.course_id)] || e.course_id,
+    }));
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  ENROLLMENTS
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupFilters() {
     $('#filter-enrollments-btn').addEventListener('click', () => {
         if (getCurrentUserRole() !== 'admin') {
@@ -800,7 +891,7 @@ async function loadEnrollmentsByStudent(studentId, options = {}) {
     state.enrollmentView = { type: 'student', value: studentId };
     const tbody = $('#enrollments-tbody');
     if (!silent) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading enrollments...</td></tr>';
     }
 
     try {
@@ -811,8 +902,9 @@ async function loadEnrollmentsByStudent(studentId, options = {}) {
             return;
         }
 
-        renderEnrollmentsTable(enrollments);
-        updateRecentEnrollments(enrollments);
+        const enriched = await enrichEnrollmentRows(enrollments);
+        renderEnrollmentsTable(enriched);
+        updateRecentEnrollments(enriched);
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading enrollments'}</td></tr>`;
     }
@@ -823,7 +915,7 @@ async function loadEnrollmentsByCourse(courseId, options = {}) {
     state.enrollmentView = { type: 'course', value: courseId };
     const tbody = $('#enrollments-tbody');
     if (!silent) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading roster...</td></tr>';
     }
 
     try {
@@ -834,7 +926,8 @@ async function loadEnrollmentsByCourse(courseId, options = {}) {
             return;
         }
 
-        renderEnrollmentsTable(enrollments);
+        const enriched = await enrichEnrollmentRows(enrollments);
+        renderEnrollmentsTable(enriched);
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading roster'}</td></tr>`;
     }
@@ -850,7 +943,7 @@ async function loadAllEnrollments(options = {}) {
     state.enrollmentView = { type: 'all', value: null };
     const tbody = $('#enrollments-tbody');
     if (!silent) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading all recent enrollments...</td></tr>';
     }
 
     try {
@@ -861,7 +954,8 @@ async function loadAllEnrollments(options = {}) {
             return;
         }
 
-        renderEnrollmentsTable(enrollments);
+        const enriched = await enrichEnrollmentRows(enrollments);
+        renderEnrollmentsTable(enriched);
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading enrollments'}</td></tr>`;
     }
@@ -879,14 +973,14 @@ function renderEnrollmentsTable(enrollments) {
 
         const date = e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString('en-US', {
             year: 'numeric', month: 'short', day: 'numeric'
-        }) : '—';
+        }) : '-';
 
         return `
             <tr>
-                <td><code>${e._id || '—'}</code></td>
-                <td>${e.student_id || '—'}</td>
-                <td>${e.course_id || '—'}</td>
-                <td><span class="badge ${statusClass}">${e.status || '—'}</span></td>
+                <td><code>${e._id || '-'}</code></td>
+                <td>${e.student_name || e.student_id || '-'}</td>
+                <td>${e.course_name || e.course_id || '-'}</td>
+                <td><span class="badge ${statusClass}">${e.status || '-'}</span></td>
                 <td>${date}</td>
                 <td class="actions-cell">
                     <button class="btn btn-outline btn-xs" onclick="openStatusModal('${e._id}', '${e.status}')">
@@ -947,7 +1041,7 @@ function updateRecentEnrollments(enrollments) {
         return `
             <div class="list-item">
                 <div class="list-item-info">
-                    <span class="list-item-title">${e.student_id} → ${e.course_id}</span>
+                    <span class="list-item-title">${e.student_name || e.student_id} -> ${e.course_name || e.course_id}</span>
                     <span class="list-item-sub">${date}</span>
                 </div>
                 <span class="badge ${statusClass}">${e.status}</span>
@@ -956,7 +1050,7 @@ function updateRecentEnrollments(enrollments) {
     }).join('');
 }
 
-// ── Create Enrollment ──────────────────────
+// â”€â”€ Create Enrollment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function setupEnrollmentForm() {
     $('#new-enrollment-btn').addEventListener('click', () => {
         const isAdmin = getCurrentUserRole() === 'admin';
@@ -989,7 +1083,7 @@ function setupEnrollmentForm() {
         const btn = e.target.querySelector('button[type="submit"]');
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<div class="loading-spinner"></div> <span>Enrolling…</span>';
+        btn.innerHTML = '<div class="loading-spinner"></div> <span>Enrolling...</span>';
 
         showToast('Processing enrollment...', 'info');
 
@@ -1029,14 +1123,14 @@ function setupProfile() {
 function populateProfileModal() {
     const user = state.user || {};
     const role = getCurrentUserRole();
-    $('#profile-name').textContent = user.name || '—';
-    $('#profile-email').textContent = user.email || '—';
-    $('#profile-phone').textContent = user.phone || '—';
-    $('#profile-id').textContent = getCurrentStudentId() || '—';
+    $('#profile-name').textContent = user.name || '-';
+    $('#profile-email').textContent = user.email || '-';
+    $('#profile-phone').textContent = user.phone || '-';
+    $('#profile-id').textContent = getCurrentStudentId() || '-';
     $('#profile-role').textContent = role;
 }
 
-// ── Cancel Enrollment ──────────────────────
+// â”€â”€ Cancel Enrollment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function cancelEnrollment(enrollmentId) {
     if (!confirm('Are you sure you want to cancel this enrollment?')) return;
 
@@ -1051,7 +1145,7 @@ async function cancelEnrollment(enrollmentId) {
     }
 }
 
-// ── Update Status ──────────────────────────
+// â”€â”€ Update Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function setupStatusForm() {
     $('#status-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -1083,12 +1177,12 @@ function openStatusModal(enrollmentId, currentStatus) {
     openModal('modal-status');
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  GRADES
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function loadGrades(studentId) {
     const tbody = $('#grades-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading grades…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading grades...</td></tr>';
     $('#gpa-summary').classList.add('hidden');
 
     try {
@@ -1101,12 +1195,12 @@ async function loadGrades(studentId) {
 
         tbody.innerHTML = grades.map(g => `
             <tr>
-                <td><code>${g.course_id || g.courseId || '—'}</code></td>
-                <td>${g.courseName || g.course_name || '—'}</td>
-                <td><strong>${g.grade || '—'}</strong></td>
-                <td>${g.score || g.marks || '—'}</td>
-                <td>${g.credits || '—'}</td>
-                <td>${g.semester || '—'}</td>
+                <td><code>${g.course_id || g.courseId || '-'}</code></td>
+                <td>${g.courseName || g.course_name || '-'}</td>
+                <td><strong>${g.grade || '-'}</strong></td>
+                <td>${g.score || g.marks || '-'}</td>
+                <td>${g.credits || '-'}</td>
+                <td>${g.semester || '-'}</td>
             </tr>
         `).join('');
 
@@ -1126,9 +1220,9 @@ async function loadGrades(studentId) {
     }
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  MODALS
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupModals() {
     // Close buttons
     $$('.modal-close, [data-close]').forEach(btn => {
@@ -1163,22 +1257,22 @@ function closeModal(id) {
     if (modal) modal.classList.remove('show');
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  TOAST NOTIFICATIONS
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function showToast(message, type = 'info') {
     const container = $('#toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
 
     const icons = {
-        success: '✓',
-        error: '✕',
-        warning: '⚠',
-        info: 'ℹ',
+        success: 'OK',
+        error: 'X',
+        warning: '!',
+        info: 'i',
     };
 
-    toast.innerHTML = `<span style="font-weight:700">${icons[type] || 'ℹ'}</span> <span>${message}</span>`;
+    toast.innerHTML = `<span style="font-weight:700">${icons[type] || 'i'}</span> <span>${message}</span>`;
     container.appendChild(toast);
 
     setTimeout(() => {
@@ -1187,9 +1281,9 @@ function showToast(message, type = 'info') {
     }, 3500);
 }
 
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  API HELPER
-// ═══════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function fetchAPI(url, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
@@ -1237,7 +1331,7 @@ async function fetchAPI(url, options = {}) {
     return data;
 }
 
-// ── Utility ───────────────────────────────
+// â”€â”€ Utility â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function hashCode(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -1256,5 +1350,7 @@ window.editStudent = editStudent;
 window.deleteStudent = deleteStudent;
 window.cancelEnrollment = cancelEnrollment;
 window.openStatusModal = openStatusModal;
+
+
 
 
