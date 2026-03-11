@@ -4,17 +4,26 @@
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 // â”€â”€ API Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const CONFIG = {
-    // Point to the API Gateway
-    GATEWAY_URL: 'https://api-gateway-763150334229.us-central1.run.app',
-    // Or for local dev:
-    // GATEWAY_URL: 'http://localhost:8080',
+const ENV_CONFIG = (typeof window !== 'undefined' && window.__UNI_PORTAL_CONFIG__) || {};
 
-    // Individual service URLs (fallback / direct access)
-    USER_SERVICE: 'https://user-service-283974567418.us-central1.run.app',
-    COURSE_SERVICE: 'https://course-service-506720768686.us-central1.run.app',
-    ENROLLMENT_SERVICE: 'https://enrollment-service-763150334229.us-central1.run.app',
-    GRADE_SERVICE: 'https://grade-service-placeholder.us-central1.run.app',
+const REQUIRED_API_CONFIG_KEYS = [
+    'GATEWAY_URL',
+    'USER_SERVICE',
+    'COURSE_SERVICE',
+    'ENROLLMENT_SERVICE',
+    'GRADE_SERVICE',
+];
+
+function getMissingApiConfigKeys() {
+    return REQUIRED_API_CONFIG_KEYS.filter((key) => !ENV_CONFIG[key]);
+}
+
+const CONFIG = {
+    GATEWAY_URL: ENV_CONFIG.GATEWAY_URL,
+    USER_SERVICE: ENV_CONFIG.USER_SERVICE,
+    COURSE_SERVICE: ENV_CONFIG.COURSE_SERVICE,
+    ENROLLMENT_SERVICE: ENV_CONFIG.ENROLLMENT_SERVICE,
+    GRADE_SERVICE: ENV_CONFIG.GRADE_SERVICE,
 };
 
 // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -85,14 +94,30 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  INITIALIZATION
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-document.addEventListener('DOMContentLoaded', () => {
+function bootstrapApp() {
+    if (window.__UNI_PORTAL_BOOTSTRAPPED__) return;
+    window.__UNI_PORTAL_BOOTSTRAPPED__ = true;
     initApp();
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrapApp);
+} else {
+    bootstrapApp();
+}
 
 function initApp() {
     // Ignore stale/demo tokens that are not real JWTs.
     if (state.token && !looksLikeJWT(state.token)) {
         clearStoredAuth();
+    }
+    const missingConfigKeys = getMissingApiConfigKeys();
+    if (missingConfigKeys.length > 0) {
+        const message = `Missing API configuration: ${missingConfigKeys.join(', ')}. Check your .env.local values.`;
+        console.error(message);
+        showLogin();
+        setAuthStatus(message, 'error');
+        return;
     }
     hydrateUserFromToken();
 
