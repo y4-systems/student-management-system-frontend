@@ -9,10 +9,6 @@ const legacyMarkup = fs.readFileSync(
 
 const runtimeConfig = {
   GATEWAY_URL: process.env.NEXT_PUBLIC_GATEWAY_URL || '',
-  USER_SERVICE: process.env.NEXT_PUBLIC_USER_SERVICE_URL || '',
-  COURSE_SERVICE: process.env.NEXT_PUBLIC_COURSE_SERVICE_URL || '',
-  ENROLLMENT_SERVICE: process.env.NEXT_PUBLIC_ENROLLMENT_SERVICE_URL || '',
-  GRADE_SERVICE: process.env.NEXT_PUBLIC_GRADE_SERVICE_URL || '',
 };
 
 const runtimeConfigScript = `window.__UNI_PORTAL_CONFIG__ = ${JSON.stringify(runtimeConfig)};`;

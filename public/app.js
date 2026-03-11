@@ -8,10 +8,6 @@ const ENV_CONFIG = (typeof window !== 'undefined' && window.__UNI_PORTAL_CONFIG_
 
 const REQUIRED_API_CONFIG_KEYS = [
     'GATEWAY_URL',
-    'USER_SERVICE',
-    'COURSE_SERVICE',
-    'ENROLLMENT_SERVICE',
-    'GRADE_SERVICE',
 ];
 
 function getMissingApiConfigKeys() {
@@ -20,10 +16,6 @@ function getMissingApiConfigKeys() {
 
 const CONFIG = {
     GATEWAY_URL: ENV_CONFIG.GATEWAY_URL,
-    USER_SERVICE: ENV_CONFIG.USER_SERVICE,
-    COURSE_SERVICE: ENV_CONFIG.COURSE_SERVICE,
-    ENROLLMENT_SERVICE: ENV_CONFIG.ENROLLMENT_SERVICE,
-    GRADE_SERVICE: ENV_CONFIG.GRADE_SERVICE,
 };
 
 // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -243,20 +235,10 @@ function setAuthStatus(message, type = '') {
 }
 
 async function loginWithCredentials(email, password) {
-    let response;
-    try {
-        response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-    } catch (err) {
-        if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway auth timeout. Retrying via User Service...', 'info');
-        response = await fetchAPI(`${CONFIG.USER_SERVICE}/auth/login`, {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-    }
+    const response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+    });
 
     if (!response?.token) {
         throw new Error('Invalid login response from auth service');
@@ -275,24 +257,10 @@ async function loginWithCredentials(email, password) {
 }
 
 async function registerStudent(payload) {
-    try {
-        return await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-    } catch (err) {
-        if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway register timeout. Retrying via User Service...', 'info');
-        return await fetchAPI(`${CONFIG.USER_SERVICE}/auth/register`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-    }
-}
-
-function isConnectivityError(err) {
-    const msg = String(err?.message || '').toLowerCase();
-    return msg.includes('timed out') || msg.includes('network error') || msg.includes('failed to fetch');
+    return await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
 }
 
 function setupLogout() {
@@ -473,53 +441,51 @@ async function loadDashboardStats() {
 }
 
 async function checkSystemHealth() {
-    const services = [
-        { id: 'gateway', url: `${CONFIG.GATEWAY_URL}/health`, name: 'API Gateway' },
-        { id: 'student', url: CONFIG.USER_SERVICE, name: 'User Service' },
-        { id: 'course', url: `${CONFIG.COURSE_SERVICE}/health`, name: 'Course Service' },
-        { id: 'enrollment', url: CONFIG.ENROLLMENT_SERVICE, name: 'Enrollment Service' },
-        { id: 'grade', url: `${CONFIG.GRADE_SERVICE}/health`, name: 'Grade Service' },
-    ];
+    const services = ['gateway', 'student', 'course', 'enrollment', 'grade'];
+    let gatewayOnline = false;
 
-    let allOnline = true;
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(`${CONFIG.GATEWAY_URL}/health`, {
+            mode: 'cors',
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Gateway health failed: ${response.status}`);
+        gatewayOnline = true;
+    } catch {
+        gatewayOnline = false;
+    }
 
-    for (const svc of services) {
-        const dotEl = $(`#health-${svc.id}`)?.closest('.health-item')?.querySelector('.health-dot');
-        const statusEl = $(`#health-${svc.id}`);
+    for (const id of services) {
+        const dotEl = $(`#health-${id}`)?.closest('.health-item')?.querySelector('.health-dot');
+        const statusEl = $(`#health-${id}`);
 
-        try {
-            if (svc.url.includes('placeholder')) {
-                throw new Error('Service URL placeholder');
-            }
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
-
-            await fetch(svc.url, {
-                mode: 'cors',
-                signal: controller.signal,
-            });
-            clearTimeout(timeout);
-
+        if (gatewayOnline) {
             if (dotEl) dotEl.classList.add('online');
             if (dotEl) dotEl.classList.remove('offline');
-            if (statusEl) statusEl.textContent = 'Online';
-            if (statusEl) statusEl.style.color = 'var(--emerald)';
-        } catch {
-            allOnline = false;
+            if (statusEl) {
+                statusEl.textContent = id === 'gateway' ? 'Online' : 'Via Gateway';
+                statusEl.style.color = id === 'gateway' ? 'var(--emerald)' : 'var(--text-secondary)';
+            }
+        } else {
             if (dotEl) dotEl.classList.add('offline');
             if (dotEl) dotEl.classList.remove('online');
-            if (statusEl) statusEl.textContent = 'Offline';
-            if (statusEl) statusEl.style.color = 'var(--rose)';
+            if (statusEl) {
+                statusEl.textContent = 'Offline';
+                statusEl.style.color = 'var(--rose)';
+            }
         }
     }
 
     const badge = $('#gateway-badge');
-    if (allOnline) {
-        badge.textContent = 'All Online';
+    if (gatewayOnline) {
+        badge.textContent = 'Gateway Online';
         badge.className = 'badge badge-success';
     } else {
-        badge.textContent = 'Partial';
-        badge.className = 'badge badge-warning';
+        badge.textContent = 'Offline';
+        badge.className = 'badge badge-danger';
     }
 }
 
