@@ -97,23 +97,23 @@
                 </div>
             </div>
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" data-page="dashboard" id="nav-dashboard">
+                <a href="/dashboard" class="nav-item active" data-page="dashboard" id="nav-dashboard">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                     <span>Dashboard</span>
                 </a>
-                <a href="#" class="nav-item" data-page="students" id="nav-students">
+                <a href="/students" class="nav-item" data-page="students" id="nav-students">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                     <span>Students</span>
                 </a>
-                <a href="#" class="nav-item" data-page="courses" id="nav-courses">
+                <a href="/courses" class="nav-item" data-page="courses" id="nav-courses">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                     <span>Courses</span>
                 </a>
-                <a href="#" class="nav-item" data-page="enrollments" id="nav-enrollments">
+                <a href="/enrollments" class="nav-item" data-page="enrollments" id="nav-enrollments">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                     <span>Enrollments</span>
                 </a>
-                <a href="#" class="nav-item" data-page="grades" id="nav-grades">
+                <a href="/grades" class="nav-item" data-page="grades" id="nav-grades">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                     <span>Grades</span>
                 </a>
@@ -450,25 +450,31 @@
     <div class="modal-overlay" id="modal-student">
         <div class="modal glass-card">
             <div class="modal-header">
-                <h3>Create Student</h3>
+                <h3>Add Student Account</h3>
                 <button class="modal-close" data-close="modal-student">&times;</button>
             </div>
             <form id="student-create-form">
                 <div class="form-group">
                     <label for="student-create-name">Full Name</label>
-                    <input type="text" id="student-create-name" placeholder="John Doe" required />
+                    <input type="text" id="student-create-name" placeholder="John Doe" autocomplete="name" required />
                 </div>
                 <div class="form-group">
                     <label for="student-create-email">Email Address</label>
-                    <input type="email" id="student-create-email" placeholder="student@university.edu" required />
+                    <input type="email" id="student-create-email" placeholder="student@university.edu" autocomplete="email" required />
                 </div>
                 <div class="form-group">
                     <label for="student-create-phone">Phone Number</label>
-                    <input type="text" id="student-create-phone" placeholder="0712345678" required />
+                    <input type="text" id="student-create-phone" placeholder="0712345678" autocomplete="tel" required />
+                </div>
+                <div class="form-group" id="student-create-student-id-group">
+                    <label for="student-create-student-id">Student ID</label>
+                    <input type="text" id="student-create-student-id" placeholder="e.g. STU-2026-001" autocomplete="off" />
+                    <p class="form-hint">Optional. Leave blank to auto-generate. If provided, it must be unique.</p>
                 </div>
                 <div class="form-group">
                     <label for="student-create-password">Password</label>
-                    <input type="password" id="student-create-password" placeholder="Minimum 6 characters" minlength="6" required />
+                    <input type="password" id="student-create-password" placeholder="Minimum 6 characters" minlength="6" autocomplete="new-password" required />
+                    <p class="form-hint">Use at least 6 characters.</p>
                 </div>
                 <div class="form-group">
                     <label for="student-create-role">Role</label>
@@ -477,11 +483,68 @@
                         <option value="admin">Admin</option>
                     </select>
                 </div>
+                <p id="student-create-status" class="modal-form-status hidden"></p>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-ghost" data-close="modal-student">Cancel</button>
                     <button type="submit" class="btn btn-primary">Create</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Edit Student Modal -->
+    <div class="modal-overlay" id="modal-student-edit">
+        <div class="modal glass-card">
+            <div class="modal-header">
+                <h3>Edit Student</h3>
+                <button class="modal-close" data-close="modal-student-edit">&times;</button>
+            </div>
+            <form id="student-edit-form">
+                <input type="hidden" id="student-edit-id" />
+                <div class="form-group">
+                    <label for="student-edit-student-id">Student ID</label>
+                    <input type="text" id="student-edit-student-id" readonly />
+                </div>
+                <div class="form-group">
+                    <label for="student-edit-name">Full Name</label>
+                    <input type="text" id="student-edit-name" autocomplete="name" required />
+                </div>
+                <div class="form-group">
+                    <label for="student-edit-email">Email Address</label>
+                    <input type="email" id="student-edit-email" autocomplete="email" required />
+                </div>
+                <div class="form-group">
+                    <label for="student-edit-phone">Phone Number</label>
+                    <input type="text" id="student-edit-phone" autocomplete="tel" required />
+                </div>
+                <div class="form-group">
+                    <label for="student-edit-password">New Password (Optional)</label>
+                    <input type="password" id="student-edit-password" minlength="6" autocomplete="new-password" placeholder="Leave blank to keep current password" />
+                    <p class="form-hint">Leave blank if you do not want to change the password.</p>
+                </div>
+                <p id="student-edit-status" class="modal-form-status hidden"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="modal-student-edit">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="student-edit-submit">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Student Modal -->
+    <div class="modal-overlay" id="modal-student-delete">
+        <div class="modal glass-card modal-delete">
+            <div class="modal-header">
+                <h3>Delete Student Account</h3>
+                <button class="modal-close" data-close="modal-student-delete">&times;</button>
+            </div>
+            <p class="delete-copy">This action will permanently remove the student record.</p>
+            <p class="delete-warning">This cannot be undone.</p>
+            <div class="delete-student-pill" id="student-delete-id">-</div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="modal-student-delete">Keep Student</button>
+                <button type="button" class="btn btn-danger" id="student-delete-confirm-btn">Delete Student</button>
+            </div>
         </div>
     </div>
 
