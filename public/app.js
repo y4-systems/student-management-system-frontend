@@ -4,18 +4,70 @@
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 // â”€â”€ API Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const CONFIG = {
-    // Point to the API Gateway
-    GATEWAY_URL: 'https://api-gateway-763150334229.us-central1.run.app',
-    // Or for local dev:
-    // GATEWAY_URL: 'http://localhost:8080',
+const ENV_CONFIG = (typeof window !== 'undefined' && window.__UNI_PORTAL_CONFIG__) || {};
 
-    // Individual service URLs (fallback / direct access)
-    USER_SERVICE: 'https://user-service-283974567418.us-central1.run.app',
-    COURSE_SERVICE: 'https://course-service-506720768686.us-central1.run.app',
-    ENROLLMENT_SERVICE: 'https://enrollment-service-763150334229.us-central1.run.app',
-    GRADE_SERVICE: 'https://grade-service-placeholder.us-central1.run.app',
+const REQUIRED_API_CONFIG_KEYS = [
+    'GATEWAY_URL',
+];
+
+function getMissingApiConfigKeys() {
+    return REQUIRED_API_CONFIG_KEYS.filter((key) => !ENV_CONFIG[key]);
+}
+
+const CONFIG = {
+    GATEWAY_URL: ENV_CONFIG.GATEWAY_URL,
+    INITIAL_PAGE: ENV_CONFIG.INITIAL_PAGE || 'dashboard',
 };
+
+const PAGE_ROUTES = {
+    dashboard: '/dashboard',
+    students: '/students',
+    courses: '/courses',
+    enrollments: '/enrollments',
+    grades: '/grades',
+};
+
+const VALID_PAGES = Object.keys(PAGE_ROUTES);
+
+function normalizePathname(pathname) {
+    const raw = String(pathname || '/').trim();
+    if (!raw || raw === '/') return '/';
+    return raw.replace(/\/+$/, '') || '/';
+}
+
+function resolvePageFromPath(pathname) {
+    const normalizedPath = normalizePathname(pathname);
+    if (normalizedPath === '/') return 'dashboard';
+
+    const matched = Object.entries(PAGE_ROUTES)
+        .find(([, route]) => route === normalizedPath);
+
+    return matched ? matched[0] : 'dashboard';
+}
+
+function resolveRouteForPage(page) {
+    return PAGE_ROUTES[page] || PAGE_ROUTES.dashboard;
+}
+
+function getInitialPagePreference() {
+    const fromConfig = String(CONFIG.INITIAL_PAGE || '').trim().toLowerCase();
+    if (VALID_PAGES.includes(fromConfig)) {
+        return fromConfig;
+    }
+    if (typeof window === 'undefined') return 'dashboard';
+    return resolvePageFromPath(window.location.pathname);
+}
+
+function syncBrowserRoute(page, options = {}) {
+    if (typeof window === 'undefined') return;
+
+    const nextRoute = resolveRouteForPage(page);
+    const currentRoute = normalizePathname(window.location.pathname);
+    if (nextRoute === currentRoute) return;
+
+    const method = options.replace ? 'replaceState' : 'pushState';
+    window.history[method]({ page }, '', nextRoute);
+}
 
 // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let state = {
@@ -26,6 +78,10 @@ let state = {
     enrollmentView: { type: 'all', value: null },
     enrollmentPoller: null,
     enrollmentRefreshInProgress: false,
+};
+
+const uiState = {
+    pendingStudentDeletion: null,
 };
 
 function looksLikeJWT(token) {
@@ -78,6 +134,32 @@ function getCurrentUserRole() {
     return state.user?.role || decodeJWTPayload(state.token)?.role || 'student';
 }
 
+function isMongoObjectId(value) {
+    return /^[a-f\d]{24}$/i.test(String(value || '').trim());
+}
+
+function toPublicStudentId(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '-';
+    if (!isMongoObjectId(raw)) return raw;
+
+    try {
+        // One-to-one conversion keeps IDs unique while hiding MongoDB ObjectId format.
+        const compact = BigInt(`0x${raw}`).toString(36).toUpperCase().padStart(19, '0');
+        return `STU-${compact}`;
+    } catch {
+        return `STU-${raw.slice(-10).toUpperCase()}`;
+    }
+}
+
+function normalizeStudentIdInput(value) {
+    return String(value || '').trim().toUpperCase();
+}
+
+function isValidStudentIdFormat(value) {
+    return /^[A-Z0-9][A-Z0-9-]{2,31}$/.test(String(value || '').trim());
+}
+
 // â”€â”€ DOM References â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -85,14 +167,30 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  INITIALIZATION
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-document.addEventListener('DOMContentLoaded', () => {
+function bootstrapApp() {
+    if (window.__UNI_PORTAL_BOOTSTRAPPED__) return;
+    window.__UNI_PORTAL_BOOTSTRAPPED__ = true;
     initApp();
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrapApp);
+} else {
+    bootstrapApp();
+}
 
 function initApp() {
     // Ignore stale/demo tokens that are not real JWTs.
     if (state.token && !looksLikeJWT(state.token)) {
         clearStoredAuth();
+    }
+    const missingConfigKeys = getMissingApiConfigKeys();
+    if (missingConfigKeys.length > 0) {
+        const message = `Missing API configuration: ${missingConfigKeys.join(', ')}. Check your .env.local values.`;
+        console.error(message);
+        showLogin();
+        setAuthStatus(message, 'error');
+        return;
     }
     hydrateUserFromToken();
 
@@ -108,6 +206,8 @@ function initApp() {
     setupNavigation();
     setupModals();
     setupStudentCreateForm();
+    setupStudentEditForm();
+    setupStudentDeleteModal();
     setupCourseCreateForm();
     setupEnrollmentForm();
     setupStatusForm();
@@ -218,20 +318,10 @@ function setAuthStatus(message, type = '') {
 }
 
 async function loginWithCredentials(email, password) {
-    let response;
-    try {
-        response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-    } catch (err) {
-        if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway auth timeout. Retrying via User Service...', 'info');
-        response = await fetchAPI(`${CONFIG.USER_SERVICE}/auth/login`, {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-    }
+    const response = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/login`, {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+    });
 
     if (!response?.token) {
         throw new Error('Invalid login response from auth service');
@@ -243,6 +333,7 @@ async function loginWithCredentials(email, password) {
     state.user = {
         ...baseUser,
         id: baseUser.id || baseUser._id || claims.id || claims.sub || null,
+        studentId: baseUser.studentId || null,
         role: baseUser.role || claims.role || 'student',
     };
     localStorage.setItem('uniportal_token', state.token);
@@ -250,24 +341,10 @@ async function loginWithCredentials(email, password) {
 }
 
 async function registerStudent(payload) {
-    try {
-        return await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-    } catch (err) {
-        if (!isConnectivityError(err)) throw err;
-        setAuthStatus('Gateway register timeout. Retrying via User Service...', 'info');
-        return await fetchAPI(`${CONFIG.USER_SERVICE}/auth/register`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        });
-    }
-}
-
-function isConnectivityError(err) {
-    const msg = String(err?.message || '').toLowerCase();
-    return msg.includes('timed out') || msg.includes('network error') || msg.includes('failed to fetch');
+    return await fetchAPI(`${CONFIG.GATEWAY_URL}/api/auth/register`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
 }
 
 function setupLogout() {
@@ -299,8 +376,8 @@ function showApp() {
     applyEnrollmentAccessControls();
     populateProfileModal();
 
-    // Load dashboard data
-    loadDashboard();
+    // Open route-aligned section on login/refresh.
+    navigateTo(getInitialPagePreference(), { replaceRoute: true });
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -314,17 +391,25 @@ function setupNavigation() {
             navigateTo(page);
         });
     });
+
+    window.addEventListener('popstate', () => {
+        if (!state.token) return;
+        const page = resolvePageFromPath(window.location.pathname);
+        navigateTo(page, { updateRoute: false });
+    });
 }
 
 function navigateTo(page, options = {}) {
+    const targetPage = VALID_PAGES.includes(page) ? page : 'dashboard';
+
     // Update active nav
     $$('.nav-item[data-page]').forEach(n => n.classList.remove('active'));
-    const activeNav = $(`.nav-item[data-page="${page}"]`);
+    const activeNav = $(`.nav-item[data-page="${targetPage}"]`);
     if (activeNav) activeNav.classList.add('active');
 
     // Update page sections
     $$('.page-section').forEach(s => s.classList.remove('active'));
-    const section = $(`#page-${page}`);
+    const section = $(`#page-${targetPage}`);
     if (section) section.classList.add('active');
 
     // Update title
@@ -335,9 +420,14 @@ function navigateTo(page, options = {}) {
         enrollments: 'Enrollments',
         grades: 'Grades',
     };
-    $('#page-title').textContent = titles[page] || page;
-    state.currentPage = page;
-    if (page === 'enrollments') {
+    $('#page-title').textContent = titles[targetPage] || targetPage;
+    state.currentPage = targetPage;
+
+    if (options.updateRoute !== false) {
+        syncBrowserRoute(targetPage, { replace: options.replaceRoute === true });
+    }
+
+    if (targetPage === 'enrollments') {
         startEnrollmentPolling();
     } else {
         stopEnrollmentPolling();
@@ -350,7 +440,7 @@ function navigateTo(page, options = {}) {
 
     // Load page data
     if (!options.skipPageLoad) {
-        switch (page) {
+        switch (targetPage) {
             case 'dashboard': loadDashboard(); break;
             case 'students': loadStudents(); break;
             case 'courses': loadCourses(); break;
@@ -448,53 +538,51 @@ async function loadDashboardStats() {
 }
 
 async function checkSystemHealth() {
-    const services = [
-        { id: 'gateway', url: `${CONFIG.GATEWAY_URL}/health`, name: 'API Gateway' },
-        { id: 'student', url: CONFIG.USER_SERVICE, name: 'User Service' },
-        { id: 'course', url: `${CONFIG.COURSE_SERVICE}/health`, name: 'Course Service' },
-        { id: 'enrollment', url: CONFIG.ENROLLMENT_SERVICE, name: 'Enrollment Service' },
-        { id: 'grade', url: `${CONFIG.GRADE_SERVICE}/health`, name: 'Grade Service' },
-    ];
+    const services = ['gateway', 'student', 'course', 'enrollment', 'grade'];
+    let gatewayOnline = false;
 
-    let allOnline = true;
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(`${CONFIG.GATEWAY_URL}/health`, {
+            mode: 'cors',
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!response.ok) throw new Error(`Gateway health failed: ${response.status}`);
+        gatewayOnline = true;
+    } catch {
+        gatewayOnline = false;
+    }
 
-    for (const svc of services) {
-        const dotEl = $(`#health-${svc.id}`)?.closest('.health-item')?.querySelector('.health-dot');
-        const statusEl = $(`#health-${svc.id}`);
+    for (const id of services) {
+        const dotEl = $(`#health-${id}`)?.closest('.health-item')?.querySelector('.health-dot');
+        const statusEl = $(`#health-${id}`);
 
-        try {
-            if (svc.url.includes('placeholder')) {
-                throw new Error('Service URL placeholder');
-            }
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
-
-            await fetch(svc.url, {
-                mode: 'cors',
-                signal: controller.signal,
-            });
-            clearTimeout(timeout);
-
+        if (gatewayOnline) {
             if (dotEl) dotEl.classList.add('online');
             if (dotEl) dotEl.classList.remove('offline');
-            if (statusEl) statusEl.textContent = 'Online';
-            if (statusEl) statusEl.style.color = 'var(--emerald)';
-        } catch {
-            allOnline = false;
+            if (statusEl) {
+                statusEl.textContent = id === 'gateway' ? 'Online' : 'Via Gateway';
+                statusEl.style.color = id === 'gateway' ? 'var(--emerald)' : 'var(--text-secondary)';
+            }
+        } else {
             if (dotEl) dotEl.classList.add('offline');
             if (dotEl) dotEl.classList.remove('online');
-            if (statusEl) statusEl.textContent = 'Offline';
-            if (statusEl) statusEl.style.color = 'var(--rose)';
+            if (statusEl) {
+                statusEl.textContent = 'Offline';
+                statusEl.style.color = 'var(--rose)';
+            }
         }
     }
 
     const badge = $('#gateway-badge');
-    if (allOnline) {
-        badge.textContent = 'All Online';
+    if (gatewayOnline) {
+        badge.textContent = 'Gateway Online';
         badge.className = 'badge badge-success';
     } else {
-        badge.textContent = 'Partial';
-        badge.className = 'badge badge-warning';
+        badge.textContent = 'Offline';
+        badge.className = 'badge badge-danger';
     }
 }
 
@@ -510,21 +598,22 @@ async function loadStudents() {
         const studentId = getCurrentStudentId();
         let students = [];
 
-        if (studentId) {
-            try {
-                const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
-                if (student) students.push(student);
-            } catch (err) {
-                // Admin IDs may exist in admin collection and not resolve under /api/students/{id}.
-                if (role !== 'admin') throw err;
-            }
-        }
+        if (role === 'admin') {
+            // Fetch the full student list from the backend
+            const list = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
+            if (Array.isArray(list)) students = list;
 
-        if (getCurrentUserRole() === 'admin' && Array.isArray(state.adminCreatedStudents)) {
-            const dedup = new Map();
-            students.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
-            state.adminCreatedStudents.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
-            students = [...dedup.values()];
+            // Merge any students created this session that may not yet be in the list
+            if (Array.isArray(state.adminCreatedStudents)) {
+                const dedup = new Map();
+                students.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
+                state.adminCreatedStudents.forEach((s) => dedup.set(String(s._id || s.id || s.studentId), s));
+                students = [...dedup.values()];
+            }
+        } else if (studentId) {
+            // Non-admin: fetch only own record
+            const student = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
+            if (student) students.push(student);
         }
 
         if (!Array.isArray(students) || students.length === 0) {
@@ -534,19 +623,21 @@ async function loadStudents() {
 
         const isAdminUser = getCurrentUserRole() === 'admin';
         tbody.innerHTML = students.map(s => {
-            const rowId = s._id || s.studentId || s.id;
-            const canMutateStudent = isAdminUser || String(rowId || '') === String(getCurrentStudentId() || '');
+            const rowId = s._id || s.id || '';
+            const publicStudentId = s.studentId || toPublicStudentId(rowId);
+            const canMutateStudent = !!rowId && (isAdminUser || String(rowId || '') === String(getCurrentStudentId() || ''));
+            const displayName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || '-';
             return `
             <tr>
-                <td><code>${rowId || '-'}</code></td>
-                <td>${s.name || s.firstName + ' ' + (s.lastName || '') || '-'}</td>
+                <td><code>${publicStudentId}</code></td>
+                <td>${displayName}</td>
                 <td>${s.email || '-'}</td>
                 <td>${s.programme || s.department || '-'}</td>
                 <td><span class="badge badge-success">${s.status || 'Active'}</span></td>
                 <td class="actions-cell">
                     <button class="btn btn-outline btn-xs" onclick="viewStudentEnrollments('${rowId}')">Enrollments</button>
                     ${canMutateStudent ? `<button class="btn btn-outline btn-xs" onclick="editStudent('${rowId}')">Edit</button>` : ''}
-                    ${canMutateStudent ? `<button class="btn btn-danger btn-xs" onclick="deleteStudent('${rowId}')">Delete</button>` : ''}
+                    ${canMutateStudent ? `<button class="btn btn-danger btn-xs" onclick="promptDeleteStudent('${rowId}', '${publicStudentId}')">Delete</button>` : ''}
                 </td>
             </tr>
         `;
@@ -563,17 +654,156 @@ function viewStudentEnrollments(studentId) {
     loadEnrollmentsByStudent(studentId);
 }
 
+function setStudentFormStatus(elementId, message, type = '') {
+    const el = $(`#${elementId}`);
+    if (!el) return;
+
+    if (!message) {
+        el.textContent = '';
+        el.className = 'modal-form-status hidden';
+        return;
+    }
+
+    el.textContent = message;
+    el.className = `modal-form-status ${type}`.trim();
+}
+
+function normalizeStudentRecord(student, fallback = {}) {
+    const id = student?.id || student?._id || fallback.id || fallback._id || '';
+    const studentId = student?.studentId || fallback.studentId || '';
+    return {
+        ...fallback,
+        ...student,
+        _id: id,
+        id,
+        studentId,
+    };
+}
+
+function upsertAdminStudentCache(student) {
+    const normalized = normalizeStudentRecord(student);
+    const studentId = normalized.id || normalized._id;
+    if (!studentId) return;
+
+    const current = Array.isArray(state.adminCreatedStudents) ? state.adminCreatedStudents : [];
+    const filtered = current.filter((item) => String(item?._id || item?.id || item?.studentId) !== String(studentId));
+    state.adminCreatedStudents = [...filtered, normalized];
+    localStorage.setItem('uniportal_admin_students', JSON.stringify(state.adminCreatedStudents));
+}
+
+function removeAdminStudentFromCache(studentId) {
+    if (!studentId) return;
+    const current = Array.isArray(state.adminCreatedStudents) ? state.adminCreatedStudents : [];
+    state.adminCreatedStudents = current.filter((item) => String(item?._id || item?.id || item?.studentId) !== String(studentId));
+    localStorage.setItem('uniportal_admin_students', JSON.stringify(state.adminCreatedStudents));
+}
+
+function resetStudentCreateForm() {
+    $('#student-create-form')?.reset();
+    if ($('#student-create-student-id')) {
+        $('#student-create-student-id').value = '';
+    }
+    if ($('#student-create-role')) {
+        $('#student-create-role').value = 'student';
+    }
+    syncCreateStudentIdField();
+    setStudentFormStatus('student-create-status', '');
+}
+
+function syncCreateStudentIdField() {
+    const roleInput = $('#student-create-role');
+    const studentIdGroup = $('#student-create-student-id-group');
+    const studentIdInput = $('#student-create-student-id');
+    if (!roleInput || !studentIdGroup || !studentIdInput) return;
+
+    const isStudentRole = String(roleInput.value || 'student').toLowerCase() === 'student';
+    studentIdGroup.classList.toggle('hidden', !isStudentRole);
+    studentIdInput.disabled = !isStudentRole;
+    if (!isStudentRole) {
+        studentIdInput.value = '';
+    }
+}
+
+function resetStudentEditForm() {
+    $('#student-edit-form')?.reset();
+    if ($('#student-edit-id')) {
+        $('#student-edit-id').value = '';
+    }
+    if ($('#student-edit-student-id')) {
+        $('#student-edit-student-id').value = '';
+    }
+    setStudentFormStatus('student-edit-status', '');
+}
+
+function setupStudentDeleteModal() {
+    const confirmBtn = $('#student-delete-confirm-btn');
+    if (!confirmBtn) return;
+
+    confirmBtn.addEventListener('click', async () => {
+        const studentId = uiState.pendingStudentDeletion?.id;
+        if (!studentId) {
+            closeModal('modal-student-delete');
+            return;
+        }
+
+        const original = confirmBtn.innerHTML;
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<div class="loading-spinner"></div> <span>Deleting...</span>';
+
+        try {
+            await deleteStudent(studentId);
+            closeModal('modal-student-delete');
+        } finally {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = original;
+            uiState.pendingStudentDeletion = null;
+        }
+    });
+}
+
+function promptDeleteStudent(studentId, studentLabel = '') {
+    if (!studentId) {
+        showToast('Invalid student reference', 'error');
+        return;
+    }
+
+    uiState.pendingStudentDeletion = {
+        id: String(studentId),
+        label: String(studentLabel || ''),
+    };
+
+    const idBadge = $('#student-delete-id');
+    if (idBadge) {
+        idBadge.textContent = uiState.pendingStudentDeletion.label || toPublicStudentId(studentId);
+    }
+
+    openModal('modal-student-delete');
+}
+
 function setupStudentCreateForm() {
-    $('#add-student-btn').addEventListener('click', () => {
+    const addStudentBtn = $('#add-student-btn');
+    const form = $('#student-create-form');
+    const roleInput = $('#student-create-role');
+    if (!addStudentBtn || !form) return;
+
+    if (roleInput) {
+        roleInput.addEventListener('change', syncCreateStudentIdField);
+    }
+    syncCreateStudentIdField();
+
+    addStudentBtn.addEventListener('click', () => {
         if (getCurrentUserRole() !== 'admin') {
             showToast('Only admins can create users', 'warning');
             return;
         }
+
+        resetStudentCreateForm();
         openModal('modal-student');
     });
 
-    $('#student-create-form').addEventListener('submit', async (e) => {
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const requestedStudentId = normalizeStudentIdInput($('#student-create-student-id')?.value || '');
         const payload = {
             name: $('#student-create-name').value.trim(),
             email: $('#student-create-email').value.trim(),
@@ -582,8 +812,24 @@ function setupStudentCreateForm() {
             role: ($('#student-create-role').value || 'student').trim().toLowerCase(),
         };
 
+        if (payload.role === 'student' && requestedStudentId) {
+            if (!isValidStudentIdFormat(requestedStudentId)) {
+                setStudentFormStatus('student-create-status', 'Invalid Student ID format. Use 3-32 chars: letters, numbers, hyphen.', 'error');
+                showToast('Invalid Student ID format', 'warning');
+                return;
+            }
+            payload.studentId = requestedStudentId;
+        }
+
         if (!payload.name || !payload.email || !payload.phone || !payload.password || !payload.role) {
+            setStudentFormStatus('student-create-status', 'Please fill in all fields.', 'error');
             showToast('Please fill in all fields', 'warning');
+            return;
+        }
+
+        if (payload.password.length < 6) {
+            setStudentFormStatus('student-create-status', 'Password must be at least 6 characters.', 'error');
+            showToast('Password must be at least 6 characters', 'warning');
             return;
         }
 
@@ -591,31 +837,120 @@ function setupStudentCreateForm() {
         const original = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<div class="loading-spinner"></div> <span>Creating...</span>';
+        setStudentFormStatus('student-create-status', 'Creating student account...', 'info');
 
         try {
             const created = await registerStudent(payload);
-            if (created?.id || created?._id || created?.studentId) {
-                const createdStudent = {
-                    _id: created.id || created._id || created.studentId,
-                    id: created.id || created._id || created.studentId,
-                    name: created.name || payload.name,
-                    email: created.email || payload.email,
-                    phone: created.phone || payload.phone,
-                };
-                state.adminCreatedStudents = [
-                    ...(Array.isArray(state.adminCreatedStudents) ? state.adminCreatedStudents : []),
-                    createdStudent,
-                ];
-                localStorage.setItem('uniportal_admin_students', JSON.stringify(state.adminCreatedStudents));
-            }
+            const createdStudent = normalizeStudentRecord(created, {
+                name: payload.name,
+                email: payload.email,
+                phone: payload.phone,
+            });
+            upsertAdminStudentCache(createdStudent);
+
+            const createdLabel = createdStudent.studentId ? `Student account created. ID: ${createdStudent.studentId}` : 'Student account created.';
+            setStudentFormStatus('student-create-status', createdLabel, 'success');
             closeModal('modal-student');
-            $('#student-create-form').reset();
-            showToast('Student account created', 'success');
+            resetStudentCreateForm();
+            showToast(createdLabel, 'success');
             if (state.currentPage === 'students') {
                 loadStudents();
             }
         } catch (err) {
+            setStudentFormStatus('student-create-status', err.message || 'Failed to create student', 'error');
             showToast(err.message || 'Failed to create student', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    });
+}
+
+function setupStudentEditForm() {
+    const form = $('#student-edit-form');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const studentId = $('#student-edit-id').value.trim();
+        const payload = {
+            name: $('#student-edit-name').value.trim(),
+            email: $('#student-edit-email').value.trim(),
+            phone: $('#student-edit-phone').value.trim(),
+            password: $('#student-edit-password').value,
+        };
+
+        if (!studentId) {
+            setStudentFormStatus('student-edit-status', 'Student ID is missing. Please retry.', 'error');
+            return;
+        }
+
+        if (!payload.name || !payload.email || !payload.phone) {
+            setStudentFormStatus('student-edit-status', 'Name, email and phone are required.', 'error');
+            showToast('Please fill in all required fields', 'warning');
+            return;
+        }
+
+        if (payload.password && payload.password.length < 6) {
+            setStudentFormStatus('student-edit-status', 'Password must be at least 6 characters.', 'error');
+            showToast('Password must be at least 6 characters', 'warning');
+            return;
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loading-spinner"></div> <span>Saving...</span>';
+        setStudentFormStatus('student-edit-status', 'Saving changes...', 'info');
+
+        try {
+            const updatePayload = {
+                name: payload.name,
+                email: payload.email,
+                phone: payload.phone,
+            };
+            if (payload.password) {
+                updatePayload.password = payload.password;
+            }
+
+            const updated = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`, {
+                method: 'PUT',
+                body: JSON.stringify(updatePayload),
+            });
+
+            const updatedStudent = normalizeStudentRecord(updated, {
+                id: studentId,
+                _id: studentId,
+                name: payload.name,
+                email: payload.email,
+                phone: payload.phone,
+            });
+
+            upsertAdminStudentCache(updatedStudent);
+
+            if (String(studentId) === String(getCurrentStudentId() || '')) {
+                state.user = {
+                    ...(state.user || {}),
+                    id: studentId,
+                    _id: studentId,
+                    studentId: updatedStudent.studentId || state.user?.studentId,
+                    name: updatedStudent.name || state.user?.name,
+                    email: updatedStudent.email || state.user?.email,
+                    phone: updatedStudent.phone || state.user?.phone,
+                };
+                localStorage.setItem('uniportal_user', JSON.stringify(state.user));
+                populateProfileModal();
+            }
+
+            setStudentFormStatus('student-edit-status', 'Student details updated.', 'success');
+            closeModal('modal-student-edit');
+            resetStudentEditForm();
+            showToast('Student updated', 'success');
+            await loadStudents();
+        } catch (err) {
+            setStudentFormStatus('student-edit-status', err.message || 'Failed to update student', 'error');
+            showToast(err.message || 'Failed to update student', 'error');
         } finally {
             btn.disabled = false;
             btn.innerHTML = original;
@@ -626,36 +961,30 @@ function setupStudentCreateForm() {
 async function editStudent(studentId) {
     try {
         const current = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`);
-        const name = prompt('Update name:', current?.name || '');
-        if (name === null) return;
-        const email = prompt('Update email:', current?.email || '');
-        if (email === null) return;
-        const phone = prompt('Update phone:', current?.phone || '');
-        if (phone === null) return;
+        const normalized = normalizeStudentRecord(current, { id: studentId, _id: studentId });
 
-        await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                name: String(name || '').trim(),
-                email: String(email || '').trim(),
-                phone: String(phone || '').trim(),
-            }),
-        });
+        resetStudentEditForm();
+        const rawId = normalized.id || normalized._id || studentId;
+        $('#student-edit-id').value = rawId;
+        $('#student-edit-student-id').value = normalized.studentId || toPublicStudentId(rawId);
+        $('#student-edit-name').value = normalized.name || '';
+        $('#student-edit-email').value = normalized.email || '';
+        $('#student-edit-phone').value = normalized.phone || '';
+        $('#student-edit-password').value = '';
 
-        showToast('Student updated', 'success');
-        await loadStudents();
+        openModal('modal-student-edit');
     } catch (err) {
         showToast(err.message || 'Failed to update student', 'error');
     }
 }
 
 async function deleteStudent(studentId) {
-    if (!confirm('Delete this student account? This cannot be undone.')) return;
-
     try {
         await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students/${studentId}`, {
             method: 'DELETE',
         });
+
+        removeAdminStudentFromCache(studentId);
 
         showToast('Student deleted', 'success');
 
@@ -863,19 +1192,20 @@ function setupFilters() {
 function applyEnrollmentAccessControls() {
     const isAdmin = getCurrentUserRole() === 'admin';
     const ownId = getCurrentStudentId();
+    const ownStudentId = state.user?.studentId || '';
     const filterInput = $('#filter-student-id');
     const filterBtn = $('#filter-enrollments-btn');
 
     if (!filterInput || !filterBtn) return;
 
     if (!isAdmin) {
-        filterInput.value = ownId || '';
+        filterInput.value = ownStudentId || (ownId ? toPublicStudentId(ownId) : '');
         filterInput.disabled = true;
         filterInput.placeholder = 'Your student ID';
         filterBtn.textContent = 'My Enrollments';
     } else {
         filterInput.disabled = false;
-        filterInput.placeholder = 'e.g. S1001';
+        filterInput.placeholder = 'Enter internal student reference';
         filterBtn.textContent = 'Search';
     }
 }
@@ -1123,10 +1453,11 @@ function setupProfile() {
 function populateProfileModal() {
     const user = state.user || {};
     const role = getCurrentUserRole();
+    const rawStudentId = getCurrentStudentId();
     $('#profile-name').textContent = user.name || '-';
     $('#profile-email').textContent = user.email || '-';
     $('#profile-phone').textContent = user.phone || '-';
-    $('#profile-id').textContent = getCurrentStudentId() || '-';
+    $('#profile-id').textContent = user.studentId || (rawStudentId ? toPublicStudentId(rawStudentId) : '-');
     $('#profile-role').textContent = role;
 }
 
@@ -1347,6 +1678,7 @@ window.navigateTo = navigateTo;
 window.viewStudentEnrollments = viewStudentEnrollments;
 window.viewCourseRoster = viewCourseRoster;
 window.editStudent = editStudent;
+window.promptDeleteStudent = promptDeleteStudent;
 window.deleteStudent = deleteStudent;
 window.cancelEnrollment = cancelEnrollment;
 window.openStatusModal = openStatusModal;

@@ -20,7 +20,7 @@
     --bg-surface: rgba(30, 30, 50, 0.6);
 
     /* — Glass — */
-    --glass-bg: rgba(30, 30, 56, 0.55);
+    --glass-bg: #1e1e38;
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 
@@ -269,8 +269,6 @@ body {
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-xl);
     box-shadow: var(--glass-shadow);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
 }
 
 /* ── Form Elements ───────────────────────── */
@@ -291,8 +289,8 @@ body {
 .form-group select {
     width: 100%;
     padding: 0.7rem 1rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #14142a;
+    border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-family: var(--font);
@@ -323,6 +321,38 @@ body {
 .form-group select option {
     background: var(--bg-card);
     color: var(--text-primary);
+}
+
+.form-group input[readonly] {
+    background: #0f0f1e;
+    color: var(--text-secondary);
+    border-color: rgba(255, 255, 255, 0.06);
+    cursor: not-allowed;
+}
+
+.form-hint {
+    margin-top: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.modal-form-status {
+    margin-top: -0.35rem;
+    margin-bottom: 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.modal-form-status.info {
+    color: var(--amber);
+}
+
+.modal-form-status.success {
+    color: var(--emerald);
+}
+
+.modal-form-status.error {
+    color: var(--rose);
 }
 
 .input-sm {
@@ -1127,6 +1157,42 @@ body {
     justify-content: flex-end;
     gap: 0.75rem;
     margin-top: 1.5rem;
+}
+
+.modal-delete {
+    max-width: 460px;
+}
+
+.delete-copy {
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.55;
+}
+
+.delete-warning {
+    color: #fecaca;
+    background: rgba(244, 63, 94, 0.14);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.8rem;
+    margin: 0.8rem 0 0;
+    font-weight: 600;
+}
+
+.delete-student-pill {
+    display: inline-flex;
+    align-items: center;
+    max-width: max-content;
+    margin-top: 0.9rem;
+    padding: 0.38rem 0.7rem;
+    border-radius: var(--radius-full);
+    border: 1px solid rgba(129, 140, 248, 0.45);
+    background: rgba(99, 102, 241, 0.14);
+    color: #c7d2fe;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
 .profile-details {
