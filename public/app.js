@@ -111,13 +111,41 @@ function decodeJWTPayload(token) {
     }
 }
 
+function deriveCanonicalInternalId(baseUser = {}, claims = {}) {
+    const candidates = [
+        baseUser?._id,
+        claims?.id,
+        claims?.sub,
+        baseUser?.id,
+    ];
+
+    return candidates.find((value) => isMongoObjectId(value)) || null;
+}
+
+function derivePublicStudentId(baseUser = {}, claims = {}) {
+    const candidates = [
+        baseUser?.studentId,
+        baseUser?.id,
+        claims?.studentId,
+        claims?.id,
+        claims?.sub,
+    ];
+
+    return candidates.find((value) => value && !isMongoObjectId(value)) || null;
+}
+
 function hydrateUserFromToken() {
     const claims = decodeJWTPayload(state.token);
     if (!claims) return;
 
+    const canonicalId = deriveCanonicalInternalId(state.user, claims);
+    const publicStudentId = derivePublicStudentId(state.user, claims);
+
     state.user = {
         ...(state.user || {}),
-        id: state.user?.id || state.user?._id || claims.id || claims.sub || null,
+        id: canonicalId || state.user?.id || state.user?._id || claims.id || claims.sub || null,
+        _id: canonicalId || state.user?._id || null,
+        studentId: state.user?.studentId || publicStudentId || null,
         email: state.user?.email || claims.email || null,
         name: state.user?.name || claims.name || claims.email?.split('@')?.[0] || 'User',
         role: state.user?.role || claims.role || 'student',
@@ -330,10 +358,13 @@ async function loginWithCredentials(email, password) {
     state.token = response.token;
     const claims = decodeJWTPayload(response.token) || {};
     const baseUser = response.user || { email, name: email.split('@')[0] };
+    const canonicalId = deriveCanonicalInternalId(baseUser, claims);
+    const publicStudentId = derivePublicStudentId(baseUser, claims);
     state.user = {
         ...baseUser,
-        id: baseUser.id || baseUser._id || claims.id || claims.sub || null,
-        studentId: baseUser.studentId || null,
+        id: canonicalId || baseUser.id || baseUser._id || claims.id || claims.sub || null,
+        _id: canonicalId || baseUser._id || null,
+        studentId: baseUser.studentId || publicStudentId || null,
         role: baseUser.role || claims.role || 'student',
     };
     localStorage.setItem('uniportal_token', state.token);
@@ -678,6 +709,35 @@ function normalizeStudentRecord(student, fallback = {}) {
         id,
         studentId,
     };
+}
+
+async function resolveStudentReference(studentRef) {
+    const raw = String(studentRef || '').trim();
+    if (!raw) return '';
+    if (isMongoObjectId(raw)) return raw;
+
+    const ownInternalId = getCurrentStudentId();
+    const ownPublicId = state.user?.studentId || '';
+    if (ownInternalId && raw === ownPublicId) {
+        return ownInternalId;
+    }
+
+    try {
+        const students = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/students`);
+        if (Array.isArray(students)) {
+            const match = students.find((student) =>
+                String(student?.studentId || '').trim().toUpperCase() === raw.toUpperCase() ||
+                String(student?._id || student?.id || '').trim() === raw
+            );
+            if (match) {
+                return match._id || match.id || raw;
+            }
+        }
+    } catch {
+        // Fall back to the supplied reference if lookup is unavailable.
+    }
+
+    return raw;
 }
 
 function upsertAdminStudentCache(student) {
@@ -1150,7 +1210,7 @@ async function enrichEnrollmentRows(enrollments) {
 //  ENROLLMENTS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupFilters() {
-    $('#filter-enrollments-btn').addEventListener('click', () => {
+    $('#filter-enrollments-btn').addEventListener('click', async () => {
         if (getCurrentUserRole() !== 'admin') {
             const ownId = getCurrentStudentId();
             if (ownId) {
@@ -1163,7 +1223,8 @@ function setupFilters() {
             loadAllEnrollments();
             return;
         }
-        loadEnrollmentsByStudent(studentId);
+        const resolvedStudentId = await resolveStudentReference(studentId);
+        loadEnrollmentsByStudent(resolvedStudentId);
     });
 
     // Enter key support
@@ -1200,12 +1261,14 @@ function applyEnrollmentAccessControls() {
 
     if (!isAdmin) {
         filterInput.value = ownStudentId || (ownId ? toPublicStudentId(ownId) : '');
+        filterInput.dataset.internalId = ownId || '';
         filterInput.disabled = true;
         filterInput.placeholder = 'Your student ID';
         filterBtn.textContent = 'My Enrollments';
     } else {
+        delete filterInput.dataset.internalId;
         filterInput.disabled = false;
-        filterInput.placeholder = 'Enter internal student reference';
+        filterInput.placeholder = 'Enter public or internal student ID';
         filterBtn.textContent = 'Search';
     }
 }
@@ -1215,7 +1278,12 @@ async function loadEnrollmentsByStudent(studentId, options = {}) {
     const ownId = getCurrentStudentId();
     if (getCurrentUserRole() !== 'admin' && ownId && studentId !== ownId) {
         studentId = ownId;
-        $('#filter-student-id').value = ownId;
+    }
+
+    const filterInput = $('#filter-student-id');
+    if (filterInput && getCurrentUserRole() !== 'admin') {
+        filterInput.value = state.user?.studentId || toPublicStudentId(studentId);
+        filterInput.dataset.internalId = studentId || '';
     }
 
     state.enrollmentView = { type: 'student', value: studentId };
@@ -1403,6 +1471,8 @@ function setupEnrollmentForm() {
         const ownId = getCurrentStudentId();
         if (getCurrentUserRole() !== 'admin' && ownId) {
             student_id = ownId;
+        } else {
+            student_id = await resolveStudentReference(student_id);
         }
 
         if (!student_id || !course_id) {
