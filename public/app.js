@@ -1720,7 +1720,12 @@ async function fetchAPI(url, options = {}) {
 
     if (!response.ok) {
         const message = data?.message || data?.error || data?.details || `HTTP ${response.status}: ${response.statusText}`;
-        if ((response.status === 401 || response.status === 403) && /invalid|expired|token|required/i.test(message)) {
+        const shouldForceLogout = (
+            (response.status === 401 || response.status === 403) &&
+            /invalid token|token expired|jwt expired|authorization required|token required|missing token|not authenticated/i.test(message)
+        );
+
+        if (shouldForceLogout) {
             clearStoredAuth();
             showLogin();
         }
