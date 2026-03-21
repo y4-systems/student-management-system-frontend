@@ -1494,3 +1494,161 @@ button:disabled {
     opacity: 0.7;
     cursor: not-allowed;
 }
+
+/* ═══════════════════════════════════════════
+   GRADES & PERFORMANCE
+   ═══════════════════════════════════════════ */
+
+.grade-tabs {
+    display: flex;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.25rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.grade-tab {
+    background: none;
+    border: none;
+    padding: 0.5rem 1rem;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all var(--duration) var(--ease);
+}
+
+.grade-tab:hover {
+    color: var(--text-primary);
+}
+
+.grade-tab.active {
+    background: var(--indigo-soft);
+    color: var(--indigo);
+}
+
+.grade-stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+    animation: fadeInUp 0.4s var(--ease) both;
+}
+
+.grade-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 2.5rem 0 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.grade-section-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.08), transparent);
+}
+
+/* Course Stats Analytics */
+.course-stats-card {
+    background: linear-gradient(135deg, var(--bg-card), rgba(28, 28, 46, 0.4));
+    overflow: hidden;
+}
+
+.stats-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    padding: 0.5rem;
+}
+
+.simple-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.simple-stat .label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.simple-stat .value {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+/* Distribution Bar */
+.distribution-chart-wrapper {
+    padding: 0.5rem;
+}
+
+.distribution-chart-wrapper label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+}
+
+.distribution-bar {
+    height: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-full);
+    display: flex;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.dist-segment {
+    height: 100%;
+    transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.dist-a { background: var(--emerald); }
+.dist-b { background: var(--indigo); }
+.dist-c { background: var(--amber); }
+.dist-d { background: #d97706; } /* darker amber */
+.dist-f { background: var(--rose); }
+
+.distribution-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.legend-item .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.dot.a { background: var(--emerald); }
+.dot.b { background: var(--indigo); }
+.dot.c { background: var(--amber); }
+.dot.d { background: #d97706; }
+.dot.f { background: var(--rose); }
+
+.mb-4 { margin-bottom: 1.5rem !important; }
+.p-4 { padding: 1.5rem !important; }

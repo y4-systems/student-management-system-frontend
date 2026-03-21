@@ -1,4 +1,4 @@
-﻿/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    UNIPORTAL â€” Application Logic
    Student Management System Frontend
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -76,6 +76,7 @@ let state = {
     adminCreatedStudents: JSON.parse(localStorage.getItem('uniportal_admin_students') || '[]'),
     currentPage: 'dashboard',
     enrollmentView: { type: 'all', value: null },
+    gradeView: { type: 'student', value: null },
     enrollmentPoller: null,
     enrollmentRefreshInProgress: false,
 };
@@ -212,6 +213,9 @@ function initApp() {
     setupEnrollmentForm();
     setupStatusForm();
     setupFilters();
+    setupGradeTabs();
+    setupCourseStats();
+    setupGradeModals();
     setupProfile();
     setupLogout();
     setupMobileMenu();
@@ -373,6 +377,7 @@ function showApp() {
     }
     $('#user-role-badge').textContent = getCurrentUserRole();
     applyRoleAccessControls();
+    applyGradeAccessControls();
     applyEnrollmentAccessControls();
     populateProfileModal();
 
@@ -383,6 +388,7 @@ function showApp() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  NAVIGATION
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function setupNavigation() {
     $$('.nav-item[data-page]').forEach(item => {
         item.addEventListener('click', (e) => {
@@ -445,8 +451,35 @@ function navigateTo(page, options = {}) {
             case 'students': loadStudents(); break;
             case 'courses': loadCourses(); break;
             case 'enrollments': loadAllEnrollments(); break;
-            case 'grades': break; // loaded on filter
+            case 'grades': loadGradesPage(); break;
         }
+    }
+}
+
+function loadGradesPage() {
+    applyGradeAccessControls();
+
+    const role = getCurrentUserRole();
+    const isAdmin = role === 'admin';
+
+    if (isAdmin) {
+        // Default admin landing: show all grades (most useful overview)
+        switchGradeTab('all');
+        return;
+    }
+
+    // Student: always show own grades using internal id from JWT
+    const ownId = getCurrentStudentId();
+    if (ownId) {
+        state.gradeView = { type: 'student', value: ownId };
+        loadGrades(ownId);
+        return;
+    }
+
+    // If we can't infer student id, keep the UI visible but show a helpful state.
+    const tbody = $('#grades-tbody');
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Unable to determine your student ID. Please re-login.</td></tr>';
     }
 }
 
@@ -534,7 +567,41 @@ async function loadDashboardStats() {
         $('#stat-enrollments').textContent = '0';
         updateRecentEnrollments([]);
     }
-    $('#stat-gpa').textContent = '-';
+
+    // GPA summary on dashboard
+    try {
+        if (role !== 'admin') {
+            // Student: show own GPA using internal id from JWT
+            if (!ownId) throw new Error('Missing student id for GPA');
+            const stats = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/gpa/${ownId}`);
+            const gpa = stats?.gpa != null ? Number(stats.gpa).toFixed(2) : '0.00';
+            $('#stat-gpa').textContent = gpa;
+        } else {
+            // Admin: show simple global snapshot based on latest grades
+            const grades = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades`);
+            if (!Array.isArray(grades) || grades.length === 0) {
+                $('#stat-gpa').textContent = '-';
+            } else {
+                const numeric = grades
+                    .map(g => typeof g.marks === 'number' ? g.marks : null)
+                    .filter(v => v != null);
+                if (!numeric.length) {
+                    $('#stat-gpa').textContent = '-';
+                } else {
+                    const avgMarks = numeric.reduce((a, b) => a + b, 0) / numeric.length;
+                    // Rough mapping to GPA scale for dashboard summary
+                    let approxGpa = 0;
+                    if (avgMarks >= 85) approxGpa = 4;
+                    else if (avgMarks >= 70) approxGpa = 3;
+                    else if (avgMarks >= 55) approxGpa = 2;
+                    else if (avgMarks >= 40) approxGpa = 1;
+                    $('#stat-gpa').textContent = approxGpa.toFixed(1);
+                }
+            }
+        }
+    } catch {
+        $('#stat-gpa').textContent = '-';
+    }
 }
 
 async function checkSystemHealth() {
@@ -1174,11 +1241,21 @@ function setupFilters() {
     });
 
     $('#filter-grades-btn').addEventListener('click', () => {
-        const studentId = $('#grade-student-id').value.trim();
-        if (!studentId) {
-            showToast('Please enter a Student ID', 'warning');
+        const role = getCurrentUserRole();
+        const ownId = getCurrentStudentId();
+
+        if (role !== 'admin' && ownId) {
+            state.gradeView = { type: 'student', value: ownId };
+            loadGrades(ownId);
             return;
         }
+
+        const studentId = $('#grade-student-id').value.trim();
+        if (!studentId) {
+            showToast('Please enter an internal Student ID', 'warning');
+            return;
+        }
+        state.gradeView = { type: 'student', value: studentId };
         loadGrades(studentId);
     });
 
@@ -1186,6 +1263,11 @@ function setupFilters() {
         if (e.key === 'Enter') {
             $('#filter-grades-btn').click();
         }
+    });
+
+    $('#load-course-stats-btn').addEventListener('click', () => {
+        const courseId = $('#stats-course-id').value.trim();
+        if (courseId) loadCourseStats(courseId);
     });
 }
 
@@ -1513,41 +1595,282 @@ function openStatusModal(enrollmentId, currentStatus) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function loadGrades(studentId) {
     const tbody = $('#grades-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading grades...</td></tr>';
-    $('#gpa-summary').classList.add('hidden');
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Loading grades...</td></tr>';
+    $('#grade-stats-row').classList.add('hidden');
+    $('#th-student').classList.add('hidden');
 
     try {
         const grades = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades/student/${studentId}`);
 
         if (!Array.isArray(grades) || grades.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No grades found for this student</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No grades found for this student</td></tr>';
             return;
         }
 
+        const isAdmin = getCurrentUserRole() === 'admin';
         tbody.innerHTML = grades.map(g => `
             <tr>
-                <td><code>${g.course_id || g.courseId || '-'}</code></td>
-                <td>${g.courseName || g.course_name || '-'}</td>
-                <td><strong>${g.grade || '-'}</strong></td>
-                <td>${g.score || g.marks || '-'}</td>
-                <td>${g.credits || '-'}</td>
+                <td>
+                    <div class="line-info">
+                        <strong>${g.course_name || g.course_id}</strong>
+                        <span class="subtext">${g.course_id}</span>
+                    </div>
+                </td>
                 <td>${g.semester || '-'}</td>
+                <td><span class="badge ${getGradeBadgeClass(g.grade)}">${g.grade || '-'}</span></td>
+                <td>${g.marks != null ? g.marks : '-'}</td>
+                <td>${g.credits || '-'}</td>
+                <td class="actions-cell">
+                    ${isAdmin ? `
+                        <button class="btn btn-outline btn-xs" onclick="openGradeUpdateModal('${g._id}', '${studentId}', '${g.course_id}', ${g.marks})">
+                            Update
+                        </button>
+                        <button class="btn btn-danger btn-xs" onclick="promptDeleteGrade('${g._id}')">
+                            Delete
+                        </button>
+                    ` : '-'}
+                </td>
             </tr>
         `).join('');
 
-        // Try loading GPA
+        // Try loading GPA stats
         try {
-            const gpaData = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/gpa/${studentId}`);
-            if (gpaData?.gpa !== undefined) {
-                $('#gpa-value').textContent = parseFloat(gpaData.gpa).toFixed(2);
-                $('#gpa-summary').classList.remove('hidden');
+            const stats = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/gpa/${studentId}`);
+            if (stats) {
+                $('#gpa-value').textContent = stats.gpa != null ? Number(stats.gpa).toFixed(2) : '0.00';
+                $('#graded-courses-count').textContent = stats.graded_courses || '0';
+                $('#total-credits-count').textContent = stats.total_credits || '0';
+                $('#grade-stats-row').classList.remove('hidden');
             }
-        } catch {
-            // GPA endpoint might not exist
+        } catch (e) {
+            console.warn('GPA calculation failed:', e.message);
         }
 
     } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${err.message || 'Error loading grades'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${err.message || 'Error loading grades'}</td></tr>`;
+    }
+}
+
+async function loadAllGrades() {
+    const tbody = $('#grades-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Loading system-wide grades...</td></tr>';
+    $('#grade-stats-row').classList.add('hidden');
+    $('#th-student').classList.remove('hidden');
+
+    try {
+        const grades = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades`);
+        if (!Array.isArray(grades) || grades.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No recent grades found in the system</td></tr>';
+            return;
+        }
+
+        const isAdmin = getCurrentUserRole() === 'admin';
+        tbody.innerHTML = grades.map(g => `
+            <tr>
+                <td>
+                    <div class="line-info">
+                        <strong>${g.course_id}</strong>
+                    </div>
+                </td>
+                <td>${g.semester || '-'}</td>
+                <td><code>${g.student_id}</code></td>
+                <td><span class="badge ${getGradeBadgeClass(g.grade)}">${g.grade || '-'}</span></td>
+                <td>${g.marks != null ? g.marks : '-'}</td>
+                <td>${g.credits || '-'}</td>
+                <td class="actions-cell">
+                    ${isAdmin ? `
+                        <button class="btn btn-outline btn-xs" onclick="openGradeUpdateModal('${g._id}', '${g.student_id}', '${g.course_id}', ${g.marks})">
+                            Update
+                        </button>
+                        <button class="btn btn-danger btn-xs" onclick="promptDeleteGrade('${g._id}')">
+                            Delete
+                        </button>
+                    ` : '-'}
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${err.message || 'Error loading records'}</td></tr>`;
+    }
+}
+
+function refreshGradeView() {
+    if (state.gradeView.type === 'all') {
+        loadAllGrades();
+    } else if (state.gradeView.value) {
+        loadGrades(state.gradeView.value);
+    }
+}
+
+function getGradeBadgeClass(grade) {
+    if (!grade) return 'badge-neutral';
+    switch (grade.toUpperCase()) {
+        case 'A': return 'badge-success';
+        case 'B': return 'badge-info';
+        case 'C': return 'badge-warning';
+        case 'D': return 'badge-warning';
+        case 'F': return 'badge-danger';
+        default: return 'badge-neutral';
+    }
+}
+
+function setupGradeTabs() {
+    $$('.grade-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            switchGradeTab(btn.dataset.tab);
+        });
+    });
+}
+
+function switchGradeTab(tab) {
+    $$('.grade-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+    
+    if (tab === 'all') {
+        $('#grade-student-filter').classList.add('hidden');
+        state.gradeView = { type: 'all', value: null };
+        loadAllGrades();
+    } else {
+        $('#grade-student-filter').classList.remove('hidden');
+        const studentId = $('#grade-student-id').value.trim();
+        state.gradeView = { type: 'student', value: studentId || null };
+        if (studentId) loadGrades(studentId);
+        else $('#grades-tbody').innerHTML = '<tr><td colspan="7" class="empty-state">Enter a Student ID to view report</td></tr>';
+    }
+}
+
+async function loadCourseStats(courseId) {
+    const loading = $('#course-stats-loading');
+    const empty = $('#course-stats-empty');
+    const content = $('#course-stats-content');
+
+    loading.classList.remove('hidden');
+    empty.classList.add('hidden');
+    content.classList.add('hidden');
+
+    try {
+        const stats = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades/course/${courseId}/stats`);
+        
+        loading.classList.add('hidden');
+        if (!stats || stats.graded_count === 0) {
+            empty.textContent = 'No records found for this course';
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        content.classList.remove('hidden');
+        $('#stat-avg-marks').textContent = stats.average_marks != null ? stats.average_marks : '—';
+        $('#stat-pass-rate').textContent = stats.pass_rate != null ? (stats.pass_rate * 100).toFixed(0) + '%' : '—';
+        $('#stat-min-max').textContent = `${stats.min_marks || 0} / ${stats.max_marks || 0}`;
+
+        const dist = stats.grade_distribution || {};
+        const total = stats.graded_count;
+        
+        const updateSeg = (grade, selector) => {
+            const count = dist[grade] || 0;
+            const pct = total > 0 ? (count / total * 100) : 0;
+            const el = content.querySelector(selector);
+            el.style.width = pct + '%';
+            el.title = `${grade}: ${count} (${pct.toFixed(1)}%)`;
+        };
+
+        updateSeg('A', '.dist-a');
+        updateSeg('B', '.dist-b');
+        updateSeg('C', '.dist-c');
+        updateSeg('D', '.dist-d');
+        updateSeg('F', '.dist-f');
+
+    } catch (err) {
+        loading.classList.add('hidden');
+        empty.textContent = 'Failed to load analytics: ' + err.message;
+        empty.classList.remove('hidden');
+    }
+}
+
+function setupGradeModals() {
+    const updateForm = $('#grade-update-form');
+    if (updateForm) {
+        updateForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = $('#grade-update-id').value;
+            const marks = Number($('#grade-update-marks').value);
+
+            try {
+                await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ marks })
+                });
+                showToast('Marks updated successfully', 'success');
+                closeModal('modal-grade-update');
+                refreshGradeView();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+    }
+
+    const deleteBtn = $('#grade-delete-confirm-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            const id = uiState.pendingGradeDeletion;
+            if (!id) return;
+
+            try {
+                await fetchAPI(`${CONFIG.GATEWAY_URL}/api/grades/${id}`, {
+                    method: 'DELETE'
+                });
+                showToast('Grade record deleted', 'success');
+                closeModal('modal-grade-delete');
+                refreshGradeView();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+    }
+}
+
+function openGradeUpdateModal(gradeId, studentId, courseId, currentMarks) {
+    $('#grade-update-id').value = gradeId;
+    $('#grade-update-student').textContent = studentId;
+    $('#grade-update-course').textContent = courseId;
+    $('#grade-update-marks').value = currentMarks || '';
+    openModal('modal-grade-update');
+}
+
+function promptDeleteGrade(gradeId) {
+    uiState.pendingGradeDeletion = gradeId;
+    openModal('modal-grade-delete');
+}
+
+function applyGradeAccessControls() {
+    const role = getCurrentUserRole();
+    const isAdmin = role === 'admin';
+    
+    $$('.admin-only').forEach(el => {
+        el.classList.toggle('hidden', !isAdmin);
+    });
+
+    const ownId = getCurrentStudentId();
+    const filterInput = $('#grade-student-id');
+    const filterBtn = $('#filter-grades-btn');
+    const tabs = $$('.grade-tab');
+
+    if (!filterInput || !filterBtn) return;
+
+    if (!isAdmin) {
+        // Students: lock to own id and avoid confusion about public IDs (S1001, etc.)
+        filterInput.value = ownId || '';
+        filterInput.disabled = true;
+        filterInput.placeholder = 'Your student ID (internal)';
+        filterBtn.textContent = 'My Grades';
+
+        // Hide the "All Grades" tab (admin-only already hidden) and keep By Student active.
+        tabs.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === 'student'));
+        $('#grade-student-filter')?.classList.remove('hidden');
+        state.gradeView = { type: 'student', value: ownId || null };
+    } else {
+        filterInput.disabled = false;
+        filterInput.placeholder = 'Enter internal student reference (Mongo _id)';
+        filterBtn.textContent = 'View Report';
     }
 }
 
