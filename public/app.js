@@ -31,11 +31,7 @@ const VALID_PAGES = Object.keys(PAGE_ROUTES);
 function normalizePathname(pathname) {
   const raw = String(pathname || "/").trim();
   if (!raw || raw === "/") return "/";
-  let result = raw;
-  while (result.endsWith("/") && result.length > 1) {
-    result = result.slice(0, -1);
-  }
-  return result || "/";
+  return raw.replace(/\/+$/, "") || "/";
 }
 
 function resolvePageFromPath(pathname) {
@@ -259,8 +255,6 @@ function initApp() {
   setupStudentEditForm();
   setupStudentDeleteModal();
   setupCourseCreateForm();
-  setupCourseEditForm();
-  setupCapacityButtons();
   setupEnrollmentForm();
   setupStatusForm();
   setupFilters();
@@ -1311,36 +1305,30 @@ async function loadCourses() {
     grid.innerHTML = courses
       .map((c) => {
         const courseId = c._id || c.courseId || c.id || "-";
-        const capacity = c.capacity || "-";
-
         const checkStudentBtn =
           role === "admin"
             ? `<button class="btn btn-outline btn-xs" onclick="promptCheckStudent('${courseId}')">Check Student</button>`
             : userId
               ? `<button class="btn btn-outline btn-xs" onclick="checkMyEnrollment('${courseId}', '${userId}')">Check My Enrollment</button>`
               : "";
-
         return `
                 <div class="course-card" id="course-card-${courseId}">
                     <h4>${c.name || c.courseName || c.title || "-"}</h4>
                     <p><strong>ID:</strong> ${courseId}</p>
                     <p>${c.description || ""}</p>
-                    <div id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;">
-                        <span>🪑 Capacity: <strong>${capacity}</strong></span>
-                        <span id="live-stats-${courseId}" style="font-size:12px;">
-                            <button class="btn btn-ghost btn-xs" onclick="loadCourseStats('${courseId}', this)" style="font-size:11px;padding:2px 6px;">Live stats ↗</button>
-                        </span>
+                    <div id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;color:var(--color-text-secondary);">
+                        <span>Loading stats...</span>
                     </div>
                     <div class="course-card-footer">
                         <span class="course-credits">${c.credits || "-"} Credits</span>
                         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}')">View Students</button>
+                            <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${(c.name || "").replace(/'/g, "\'")}')">View Students</button>
                             ${checkStudentBtn}
                             ${
                               role === "admin"
                                 ? `
-                            <button class="btn btn-outline btn-xs" onclick="openCourseEdit('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}', '${(c.description || "").replace(/'/g, "\\'")}', ${c.credits || 3})">Edit</button>
-                            <button class="btn btn-outline btn-xs" onclick="openCapacityModal('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}', ${c.capacity || 30}, 0)">Capacity</button>
+                            <button class="btn btn-outline btn-xs" onclick="openCourseEdit('${courseId}', '${(c.name || "").replace(/'/g, "\'")}', '${(c.description || "").replace(/'/g, "\'")}', ${c.credits || 3})">Edit</button>
+                            <button class="btn btn-outline btn-xs" onclick="openCapacityModal('${courseId}', '${(c.name || "").replace(/'/g, "\'")}', ${c.capacity || 30}, 0)">Capacity</button>
                             `
                                 : ""
                             }
@@ -1350,38 +1338,43 @@ async function loadCourses() {
             `;
       })
       .join("");
+
+    // Load stats one by one with 1 second gap to avoid rate limiting
+    for (const c of courses) {
+      const courseId = c._id || c.courseId || c.id;
+      try {
+        const detail = await fetchAPI(
+          `${CONFIG.GATEWAY_URL}/api/courses/${courseId}`
+        );
+        const enrolledCount =
+          detail.enrolled_count !== undefined ? detail.enrolled_count : "-";
+        const availableSeats =
+          detail.available_seats !== undefined ? detail.available_seats : "-";
+        const isFull =
+          typeof detail.available_seats === "number" &&
+          detail.available_seats <= 0;
+        const infoEl = $(`#enroll-info-${courseId}`);
+        if (infoEl) {
+          infoEl.style.color = "";
+          infoEl.innerHTML = `
+                        <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
+                        <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
+                            🪑 Available: <strong>${availableSeats}</strong>
+                        </span>
+                    `;
+        }
+      } catch {
+        const infoEl = $(`#enroll-info-${courseId}`);
+        if (infoEl)
+          infoEl.innerHTML = `<span style="font-size:12px;">🪑 Capacity: <strong>${c.capacity || "-"}</strong></span>`;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   } catch (err) {
     grid.innerHTML = `<div class="empty-state">Unable to load courses - ${err.message}</div>`;
   }
 }
 
-// Load live enrollment stats for one course on demand
-async function loadCourseStats(courseId, btn) {
-  btn.disabled = true;
-  btn.textContent = "...";
-  try {
-    const c = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses/${courseId}`);
-    const enrolledCount =
-      c.enrolled_count !== undefined ? c.enrolled_count : "-";
-    const availableSeats =
-      c.available_seats !== undefined ? c.available_seats : "-";
-    const isFull =
-      typeof c.available_seats === "number" && c.available_seats <= 0;
-    const liveEl = $(`#live-stats-${courseId}`);
-    if (liveEl) {
-      liveEl.innerHTML = `
-                <span>👥 <strong>${enrolledCount}</strong> enrolled</span>
-                &nbsp;
-                <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">🪑 <strong>${availableSeats}</strong> available</span>
-            `;
-    }
-  } catch {
-    btn.textContent = "Retry";
-    btn.disabled = false;
-  }
-}
-
-// ── View Students in a Course ─────────────────────────────────────
 async function viewCourseStudents(courseId, courseName) {
   $("#course-students-title").textContent = `Students — ${courseName}`;
   $("#course-students-body").innerHTML =
@@ -1422,7 +1415,6 @@ async function viewCourseStudents(courseId, courseName) {
   }
 }
 
-// ── Edit Course ───────────────────────────────────────────────────
 function openCourseEdit(courseId, name, description, credits) {
   $("#course-edit-id").value = courseId;
   $("#course-edit-name").value = name;
@@ -1462,7 +1454,6 @@ function setupCourseEditForm() {
   });
 }
 
-// ── Update Capacity ───────────────────────────────────────────────
 let _capacityCourseId = null;
 
 function openCapacityModal(courseId, courseName, capacity, enrolled) {
@@ -1501,7 +1492,6 @@ async function updateCourseCapacity(action) {
   }
 }
 
-// ── Check Student Enrollment ──────────────────────────────────────
 async function promptCheckStudent(courseId) {
   const studentId = prompt("Enter Student ID to check enrollment:");
   if (!studentId) return;
@@ -2171,9 +2161,3 @@ window.promptDeleteStudent = promptDeleteStudent;
 window.deleteStudent = deleteStudent;
 window.cancelEnrollment = cancelEnrollment;
 window.openStatusModal = openStatusModal;
-window.loadCourseStats = loadCourseStats;
-window.viewCourseStudents = viewCourseStudents;
-window.openCourseEdit = openCourseEdit;
-window.openCapacityModal = openCapacityModal;
-window.promptCheckStudent = promptCheckStudent;
-window.checkMyEnrollment = checkMyEnrollment;
