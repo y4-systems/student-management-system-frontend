@@ -255,6 +255,8 @@ function initApp() {
   setupStudentEditForm();
   setupStudentDeleteModal();
   setupCourseCreateForm();
+  setupCourseEditForm();
+  setupCapacityButtons();
   setupEnrollmentForm();
   setupStatusForm();
   setupFilters();
@@ -1341,9 +1343,17 @@ async function loadCourses() {
                     </div>
                     <div class="course-card-footer">
                         <span class="course-credits">${c.credits || "-"} Credits</span>
-                        <div style="display:flex;gap:6px;">
-                            <button class="btn btn-outline btn-xs" onclick="viewCourseRoster('${courseId}')">View Roster</button>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${c.name || "Course"}')">View Students</button>
                             ${checkStudentBtn}
+                            ${
+                              role === "admin"
+                                ? `
+                            <button class="btn btn-outline btn-xs" onclick="openCourseEdit('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}', '${(c.description || "").replace(/'/g, "\\'")}', ${c.credits || 3})">Edit</button>
+                            <button class="btn btn-outline btn-xs" onclick="openCapacityModal('${courseId}', '${c.name || ""}', ${c.capacity || 30}, ${enrolledCount === "-" ? 0 : enrolledCount})">Capacity</button>
+                            `
+                                : ""
+                            }
                         </div>
                     </div>
                 </div>
@@ -1352,6 +1362,142 @@ async function loadCourses() {
       .join("");
   } catch (err) {
     grid.innerHTML = `<div class="empty-state">Unable to load courses - ${err.message}</div>`;
+  }
+}
+
+// ── View Students in a Course ─────────────────────────────────────
+async function viewCourseStudents(courseId, courseName) {
+  $("#course-students-title").textContent = `Students — ${courseName}`;
+  $("#course-students-body").innerHTML =
+    '<p style="padding:8px">Loading...</p>';
+  openModal("modal-course-students");
+
+  try {
+    const enrollments = await fetchAPI(
+      `${CONFIG.GATEWAY_URL}/api/enrollments/course/${courseId}`
+    );
+
+    if (!Array.isArray(enrollments) || enrollments.length === 0) {
+      $("#course-students-body").innerHTML =
+        '<p style="padding:8px;color:var(--color-text-secondary)">No students enrolled in this course.</p>';
+      return;
+    }
+
+    // Enrich with student names
+    const enriched = await enrichEnrollmentRows(enrollments);
+
+    $("#course-students-body").innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Student ID</th>
+                        <th>Status</th>
+                        <th>Enrolled At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${enriched
+                      .map(
+                        (e) => `
+                        <tr>
+                            <td>${e.student_name || "-"}</td>
+                            <td><code>${e.student_id || "-"}</code></td>
+                            <td><span class="badge ${e.status === "ACTIVE" ? "badge-success" : e.status === "CANCELLED" ? "badge-danger" : "badge-info"}">${e.status || "-"}</span></td>
+                            <td>${e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString() : "-"}</td>
+                        </tr>
+                    `
+                      )
+                      .join("")}
+                </tbody>
+            </table>
+        `;
+  } catch (err) {
+    $("#course-students-body").innerHTML =
+      `<p style="padding:8px;color:var(--rose)">Error: ${err.message}</p>`;
+  }
+}
+
+// ── Edit Course ───────────────────────────────────────────────────
+function openCourseEdit(courseId, name, description, credits) {
+  $("#course-edit-id").value = courseId;
+  $("#course-edit-name").value = name;
+  $("#course-edit-description").value = description;
+  $("#course-edit-credits").value = credits;
+  openModal("modal-course-edit");
+}
+
+function setupCourseEditForm() {
+  const form = $("#course-edit-form");
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const courseId = $("#course-edit-id").value;
+    const payload = {
+      name: $("#course-edit-name").value.trim(),
+      description: $("#course-edit-description").value.trim(),
+      credits: Number($("#course-edit-credits").value)
+    };
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Saving...";
+
+    try {
+      await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses/${courseId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+      showToast("Course updated successfully", "success");
+      closeModal("modal-course-edit");
+      await loadCourses();
+    } catch (err) {
+      showToast(err.message || "Failed to update course", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Save Changes";
+    }
+  });
+}
+
+// ── Update Capacity ───────────────────────────────────────────────
+let _capacityCourseId = null;
+
+function openCapacityModal(courseId, courseName, capacity, enrolled) {
+  _capacityCourseId = courseId;
+  $("#capacity-modal-info").textContent =
+    `${courseName} — Current capacity: ${capacity}, Enrolled: ${enrolled}`;
+  openModal("modal-course-capacity");
+}
+
+function setupCapacityButtons() {
+  const incBtn = $("#capacity-increment-btn");
+  const decBtn = $("#capacity-decrement-btn");
+  if (!incBtn || !decBtn) return;
+
+  incBtn.addEventListener("click", () => updateCourseCapacity("increment"));
+  decBtn.addEventListener("click", () => updateCourseCapacity("decrement"));
+}
+
+async function updateCourseCapacity(action) {
+  if (!_capacityCourseId) return;
+  try {
+    await fetchAPI(
+      `${CONFIG.GATEWAY_URL}/api/courses/${_capacityCourseId}/capacity`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ action })
+      }
+    );
+    showToast(
+      `Capacity ${action === "increment" ? "increased" : "decreased"} successfully`,
+      "success"
+    );
+    closeModal("modal-course-capacity");
+    await loadCourses();
+  } catch (err) {
+    showToast(err.message || "Failed to update capacity", "error");
   }
 }
 
