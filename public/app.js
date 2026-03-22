@@ -1301,14 +1301,19 @@ async function loadCourses() {
       return;
     }
 
-    // Fetch detailed info (enrolled_count, available_seats) for each course
-    const detailed = await Promise.all(
-      courses.map((c) =>
-        fetchAPI(
+    // Fetch detailed info sequentially to avoid rate limiting
+    const detailed = [];
+    for (const c of courses) {
+      try {
+        const detail = await fetchAPI(
           `${CONFIG.GATEWAY_URL}/api/courses/${c._id || c.courseId || c.id}`
-        ).catch(() => c)
-      )
-    );
+        );
+        detailed.push(detail);
+      } catch {
+        detailed.push(c);
+      }
+      await new Promise((r) => setTimeout(r, 100)); // 100ms gap between requests
+    }
 
     const role = state.user?.role || "";
     const userId = state.user?.id || "";
