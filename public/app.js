@@ -1301,32 +1301,11 @@ async function loadCourses() {
       return;
     }
 
-    // Fetch detailed info sequentially to avoid rate limiting
-    const detailed = [];
-    for (const c of courses) {
-      try {
-        const detail = await fetchAPI(
-          `${CONFIG.GATEWAY_URL}/api/courses/${c._id || c.courseId || c.id}`
-        );
-        detailed.push(detail);
-      } catch {
-        detailed.push(c);
-      }
-      await new Promise((r) => setTimeout(r, 100)); // 100ms gap between requests
-    }
-
-    const role = state.user?.role || "";
-    const userId = state.user?.id || "";
-
-    grid.innerHTML = detailed
+    grid.innerHTML = courses
       .map((c) => {
         const courseId = c._id || c.courseId || c.id || "-";
-        const enrolledCount =
-          c.enrolled_count !== undefined ? c.enrolled_count : "-";
-        const availableSeats =
-          c.available_seats !== undefined ? c.available_seats : "-";
-        const isFull =
-          typeof c.available_seats === "number" && c.available_seats <= 0;
+        const role = state.user?.role || "";
+        const userId = state.user?.id || "";
 
         const checkStudentBtn =
           role === "admin"
@@ -1336,26 +1315,24 @@ async function loadCourses() {
               : "";
 
         return `
-                <div class="course-card">
+                <div class="course-card" id="course-card-${courseId}">
                     <h4>${c.name || c.courseName || c.title || "-"}</h4>
                     <p><strong>ID:</strong> ${courseId}</p>
                     <p>${c.description || ""}</p>
-                    <div class="course-enrollment-info" style="display:flex;gap:12px;margin:6px 0;font-size:13px;">
-                        <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
-                        <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
-                            🪑 Available: <strong>${availableSeats}</strong>
-                        </span>
+                    <div class="course-enrollment-info" id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;">
+                        <span style="color:var(--color-text-secondary);font-size:12px;">Click "Load Stats" to see enrollment data</span>
                     </div>
                     <div class="course-card-footer">
                         <span class="course-credits">${c.credits || "-"} Credits</span>
                         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${c.name || "Course"}')">View Students</button>
+                            <button class="btn btn-outline btn-xs" onclick="loadCourseStats('${courseId}', this)">Load Stats</button>
+                            <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}')">View Students</button>
                             ${checkStudentBtn}
                             ${
                               role === "admin"
                                 ? `
                             <button class="btn btn-outline btn-xs" onclick="openCourseEdit('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}', '${(c.description || "").replace(/'/g, "\\'")}', ${c.credits || 3})">Edit</button>
-                            <button class="btn btn-outline btn-xs" onclick="openCapacityModal('${courseId}', '${c.name || ""}', ${c.capacity || 30}, ${enrolledCount === "-" ? 0 : enrolledCount})">Capacity</button>
+                            <button class="btn btn-outline btn-xs" onclick="openCapacityModal('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}', ${c.capacity || 30}, 0)">Capacity</button>
                             `
                                 : ""
                             }
@@ -1370,7 +1347,36 @@ async function loadCourses() {
   }
 }
 
-// ── View Students in a Course ─────────────────────────────────────
+// Load enrollment stats for a single course on demand
+async function loadCourseStats(courseId, btn) {
+  btn.disabled = true;
+  btn.textContent = "...";
+  try {
+    const c = await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses/${courseId}`);
+    const enrolledCount =
+      c.enrolled_count !== undefined ? c.enrolled_count : "-";
+    const availableSeats =
+      c.available_seats !== undefined ? c.available_seats : "-";
+    const isFull =
+      typeof c.available_seats === "number" && c.available_seats <= 0;
+
+    const infoEl = $(`#enroll-info-${courseId}`);
+    if (infoEl) {
+      infoEl.innerHTML = `
+                <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
+                <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
+                    🪑 Available: <strong>${availableSeats}</strong>
+                </span>
+            `;
+    }
+    btn.textContent = "Refresh";
+    btn.disabled = false;
+  } catch (err) {
+    btn.textContent = "Retry";
+    btn.disabled = false;
+    showToast("Could not load stats: " + err.message, "error");
+  }
+}
 async function viewCourseStudents(courseId, courseName) {
   $("#course-students-title").textContent = `Students — ${courseName}`;
   $("#course-students-body").innerHTML =
