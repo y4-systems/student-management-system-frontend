@@ -31,7 +31,11 @@ const VALID_PAGES = Object.keys(PAGE_ROUTES);
 function normalizePathname(pathname) {
   const raw = String(pathname || "/").trim();
   if (!raw || raw === "/") return "/";
-  return raw.replace(/\/+$/, "") || "/";
+  let result = raw;
+  while (result.endsWith("/") && result.length > 1) {
+    result = result.slice(0, -1);
+  }
+  return result || "/";
 }
 
 function resolvePageFromPath(pathname) {
@@ -1301,11 +1305,13 @@ async function loadCourses() {
       return;
     }
 
+    const role = state.user?.role || "";
+    const userId = state.user?.id || "";
+
     grid.innerHTML = courses
       .map((c) => {
         const courseId = c._id || c.courseId || c.id || "-";
-        const role = state.user?.role || "";
-        const userId = state.user?.id || "";
+        const capacity = c.capacity || "-";
 
         const checkStudentBtn =
           role === "admin"
@@ -1319,8 +1325,11 @@ async function loadCourses() {
                     <h4>${c.name || c.courseName || c.title || "-"}</h4>
                     <p><strong>ID:</strong> ${courseId}</p>
                     <p>${c.description || ""}</p>
-                    <div class="course-enrollment-info" id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;color:var(--color-text-secondary);">
-                        <span>Loading stats...</span>
+                    <div id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;">
+                        <span>🪑 Capacity: <strong>${capacity}</strong></span>
+                        <span id="live-stats-${courseId}" style="font-size:12px;">
+                            <button class="btn btn-ghost btn-xs" onclick="loadCourseStats('${courseId}', this)" style="font-size:11px;padding:2px 6px;">Live stats ↗</button>
+                        </span>
                     </div>
                     <div class="course-card-footer">
                         <span class="course-credits">${c.credits || "-"} Credits</span>
@@ -1341,45 +1350,12 @@ async function loadCourses() {
             `;
       })
       .join("");
-
-    // Load enrollment stats one by one with delay to avoid rate limiting
-    for (const c of courses) {
-      const courseId = c._id || c.courseId || c.id;
-      try {
-        const detail = await fetchAPI(
-          `${CONFIG.GATEWAY_URL}/api/courses/${courseId}`
-        );
-        const enrolledCount =
-          detail.enrolled_count !== undefined ? detail.enrolled_count : "-";
-        const availableSeats =
-          detail.available_seats !== undefined ? detail.available_seats : "-";
-        const isFull =
-          typeof detail.available_seats === "number" &&
-          detail.available_seats <= 0;
-
-        const infoEl = $(`#enroll-info-${courseId}`);
-        if (infoEl) {
-          infoEl.innerHTML = `
-                        <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
-                        <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
-                            🪑 Available: <strong>${availableSeats}</strong>
-                        </span>
-                    `;
-        }
-      } catch {
-        const infoEl = $(`#enroll-info-${courseId}`);
-        if (infoEl)
-          infoEl.innerHTML =
-            '<span style="color:var(--color-text-secondary);font-size:12px;">Stats unavailable</span>';
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
   } catch (err) {
     grid.innerHTML = `<div class="empty-state">Unable to load courses - ${err.message}</div>`;
   }
 }
 
-// Load enrollment stats for a single course on demand
+// Load live enrollment stats for one course on demand
 async function loadCourseStats(courseId, btn) {
   btn.disabled = true;
   btn.textContent = "...";
@@ -1391,54 +1367,39 @@ async function loadCourseStats(courseId, btn) {
       c.available_seats !== undefined ? c.available_seats : "-";
     const isFull =
       typeof c.available_seats === "number" && c.available_seats <= 0;
-
-    const infoEl = $(`#enroll-info-${courseId}`);
-    if (infoEl) {
-      infoEl.innerHTML = `
-                <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
-                <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
-                    🪑 Available: <strong>${availableSeats}</strong>
-                </span>
+    const liveEl = $(`#live-stats-${courseId}`);
+    if (liveEl) {
+      liveEl.innerHTML = `
+                <span>👥 <strong>${enrolledCount}</strong> enrolled</span>
+                &nbsp;
+                <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">🪑 <strong>${availableSeats}</strong> available</span>
             `;
     }
-    btn.textContent = "Refresh";
-    btn.disabled = false;
-  } catch (err) {
+  } catch {
     btn.textContent = "Retry";
     btn.disabled = false;
-    showToast("Could not load stats: " + err.message, "error");
   }
 }
+
+// ── View Students in a Course ─────────────────────────────────────
 async function viewCourseStudents(courseId, courseName) {
   $("#course-students-title").textContent = `Students — ${courseName}`;
   $("#course-students-body").innerHTML =
     '<p style="padding:8px">Loading...</p>';
   openModal("modal-course-students");
-
   try {
     const enrollments = await fetchAPI(
       `${CONFIG.GATEWAY_URL}/api/enrollments/course/${courseId}`
     );
-
     if (!Array.isArray(enrollments) || enrollments.length === 0) {
       $("#course-students-body").innerHTML =
         '<p style="padding:8px;color:var(--color-text-secondary)">No students enrolled in this course.</p>';
       return;
     }
-
-    // Enrich with student names
     const enriched = await enrichEnrollmentRows(enrollments);
-
     $("#course-students-body").innerHTML = `
             <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Student</th>
-                        <th>Student ID</th>
-                        <th>Status</th>
-                        <th>Enrolled At</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Student</th><th>Student ID</th><th>Status</th><th>Enrolled At</th></tr></thead>
                 <tbody>
                     ${enriched
                       .map(
@@ -1473,7 +1434,6 @@ function openCourseEdit(courseId, name, description, credits) {
 function setupCourseEditForm() {
   const form = $("#course-edit-form");
   if (!form) return;
-
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const courseId = $("#course-edit-id").value;
@@ -1482,11 +1442,9 @@ function setupCourseEditForm() {
       description: $("#course-edit-description").value.trim(),
       credits: Number($("#course-edit-credits").value)
     };
-
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     submitBtn.textContent = "Saving...";
-
     try {
       await fetchAPI(`${CONFIG.GATEWAY_URL}/api/courses/${courseId}`, {
         method: "PUT",
@@ -1518,7 +1476,6 @@ function setupCapacityButtons() {
   const incBtn = $("#capacity-increment-btn");
   const decBtn = $("#capacity-decrement-btn");
   if (!incBtn || !decBtn) return;
-
   incBtn.addEventListener("click", () => updateCourseCapacity("increment"));
   decBtn.addEventListener("click", () => updateCourseCapacity("decrement"));
 }
@@ -1544,19 +1501,17 @@ async function updateCourseCapacity(action) {
   }
 }
 
-// Admin: prompt for a student ID then check enrollment
+// ── Check Student Enrollment ──────────────────────────────────────
 async function promptCheckStudent(courseId) {
   const studentId = prompt("Enter Student ID to check enrollment:");
   if (!studentId) return;
   await checkStudentEnrollmentUI(courseId, studentId.trim());
 }
 
-// Student: check their own enrollment in a course
 async function checkMyEnrollment(courseId, studentId) {
   await checkStudentEnrollmentUI(courseId, studentId);
 }
 
-// Shared: calls GET /api/courses/:courseId/check-student/:studentId
 async function checkStudentEnrollmentUI(courseId, studentId) {
   try {
     const result = await fetchAPI(
@@ -2216,3 +2171,9 @@ window.promptDeleteStudent = promptDeleteStudent;
 window.deleteStudent = deleteStudent;
 window.cancelEnrollment = cancelEnrollment;
 window.openStatusModal = openStatusModal;
+window.loadCourseStats = loadCourseStats;
+window.viewCourseStudents = viewCourseStudents;
+window.openCourseEdit = openCourseEdit;
+window.openCapacityModal = openCapacityModal;
+window.promptCheckStudent = promptCheckStudent;
+window.checkMyEnrollment = checkMyEnrollment;
