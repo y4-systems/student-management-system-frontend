@@ -1319,13 +1319,12 @@ async function loadCourses() {
                     <h4>${c.name || c.courseName || c.title || "-"}</h4>
                     <p><strong>ID:</strong> ${courseId}</p>
                     <p>${c.description || ""}</p>
-                    <div class="course-enrollment-info" id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;">
-                        <span style="color:var(--color-text-secondary);font-size:12px;">Click "Load Stats" to see enrollment data</span>
+                    <div class="course-enrollment-info" id="enroll-info-${courseId}" style="display:flex;gap:12px;margin:6px 0;font-size:13px;color:var(--color-text-secondary);">
+                        <span>Loading stats...</span>
                     </div>
                     <div class="course-card-footer">
                         <span class="course-credits">${c.credits || "-"} Credits</span>
                         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <button class="btn btn-outline btn-xs" onclick="loadCourseStats('${courseId}', this)">Load Stats</button>
                             <button class="btn btn-outline btn-xs" onclick="viewCourseStudents('${courseId}', '${(c.name || "").replace(/'/g, "\\'")}')">View Students</button>
                             ${checkStudentBtn}
                             ${
@@ -1342,6 +1341,39 @@ async function loadCourses() {
             `;
       })
       .join("");
+
+    // Load enrollment stats one by one with delay to avoid rate limiting
+    for (const c of courses) {
+      const courseId = c._id || c.courseId || c.id;
+      try {
+        const detail = await fetchAPI(
+          `${CONFIG.GATEWAY_URL}/api/courses/${courseId}`
+        );
+        const enrolledCount =
+          detail.enrolled_count !== undefined ? detail.enrolled_count : "-";
+        const availableSeats =
+          detail.available_seats !== undefined ? detail.available_seats : "-";
+        const isFull =
+          typeof detail.available_seats === "number" &&
+          detail.available_seats <= 0;
+
+        const infoEl = $(`#enroll-info-${courseId}`);
+        if (infoEl) {
+          infoEl.innerHTML = `
+                        <span>👥 Enrolled: <strong>${enrolledCount}</strong></span>
+                        <span style="color:${isFull ? "var(--rose)" : "var(--emerald)"}">
+                            🪑 Available: <strong>${availableSeats}</strong>
+                        </span>
+                    `;
+        }
+      } catch {
+        const infoEl = $(`#enroll-info-${courseId}`);
+        if (infoEl)
+          infoEl.innerHTML =
+            '<span style="color:var(--color-text-secondary);font-size:12px;">Stats unavailable</span>';
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
   } catch (err) {
     grid.innerHTML = `<div class="empty-state">Unable to load courses - ${err.message}</div>`;
   }
