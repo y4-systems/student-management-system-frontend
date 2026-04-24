@@ -265,6 +265,7 @@ function initApp() {
   setupProfile();
   setupLogout();
   setupMobileMenu();
+  setupCapacityButtons();
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
